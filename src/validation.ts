@@ -92,3 +92,21 @@ export function parsePurchaseId(value: string): string {
   }
   return value.toLowerCase();
 }
+
+export function parseSessionCookie(value: string | undefined): string | null {
+  if (!value || !UUID_PATTERN.test(value)) return null;
+  return value.toLowerCase();
+}
+
+export function parseBallIdList(value: unknown): number[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 2500) {
+    throw new HttpError(400, "Choose at least one ball.");
+  }
+  const ids: number[] = [];
+  for (const item of value) {
+    const id = parseOptionalBallId(item);
+    if (id == null) throw new HttpError(400, "ballId must be a whole number.");
+    ids.push(id);
+  }
+  return [...new Set(ids)];
+}

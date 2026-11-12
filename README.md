@@ -8,7 +8,7 @@ This repository is a local demonstration scaffold. It is not a live gaming site,
 
 Four flows share one Worker, one D1 database, and the static pages in `public/`:
 
-1. **Purchase engine.** On `/`, a buyer picks a specific open ball, enters a name and email, and buys it in one step. Checkout requires a checkbox that the buyer is 19 or older and physically in British Columbia. That attestation is stored on the purchase. The ball locks to sold inside one D1 batch, so a second buy of that ball is rejected. The same buyer can check out as many open balls as they want. The purchase stores a fake Stripe test reference and does not call Stripe. Each purchase gets an unguessable receipt token.
+1. **Purchase engine.** On `/`, a buyer picks a specific open ball. That pick is a reservation hold: the ball stays out of the pit while they pay, and it is not a sale yet. The five minutes start when that browser holds its first ball. Every later ball in the same reservation shares that deadline. Checkout asks the buyer to confirm they are 19 or older and physically in British Columbia, and stores that attestation on the purchase. Paying converts the holds in the order into demo purchases and releases any other holds from that reservation. If the five minutes pass first, the holds expire and the balls go back in the pit. That sweep runs on API requests and on a minutely Worker schedule, so a closed tab does not leave a ball stuck. A purchase locks the ball to sold inside one D1 batch, so a second buy of that ball is rejected. The same buyer can check out as many open balls as they want. The purchase stores a fake Stripe test reference and does not call Stripe. Each purchase gets an unguessable receipt token.
 2. **Customer purchase view.** Checkout returns that token and puts it in the receipt. `/purchase?token=` opens that one purchase. Typing someone else's email does not list their balls or the stored receipt.
 3. **Email and ball records.** Every buy writes `ball_selections` (email plus ball) and `email_dispatches` (the receipt subject and body, beside that ball). With no `RESEND_API_KEY`, or while `EMAIL_DELIVERY` is `dry_run`, the row is still stored and nothing is sent. `/selections` shows those rows, including the receipt text, and only for an admin.
 4. **Admin offline sales.** `/admin` lets an administrator pick a ball for a name and email, after recording that the buyer confirmed they are 19 or older and physically in British Columbia. It uses the same lock, purchase row, receipt token, and email-and-ball row as an online buy, with `payment_mode` `offline_demo`. The attestation is stored with `attested_by` `admin`. The page prefers a Google sign-in whose email is listed in `ADMIN_EMAILS`. `Authorization: Bearer` matching `ADMIN_TOKEN` still authorizes the admin API. Buyers do not sign in with Google to purchase a ball.
@@ -40,7 +40,7 @@ Open `http://localhost:8787`.
 
 ### Try each flow
 
-1. **Buy a ball.** On `/`, click a bright ball in the marquee (or open `/pick`). Arrow keys move between balls. Continue to checkout, enter an email, check the 19+ and in-BC box, and choose the test pay button. The purchase is refused without that box. The card fields are disabled placeholders. The ball locks. Buying it again returns a conflict. Nothing is charged. The confirmation page links to a receipt for each ball. Set `ALLOW_BALL_PICKING` to `false` and restart to try the quantity field instead. It has no cap other than how many balls are still free.
+1. **Buy a ball.** On `/`, click a bright ball in the marquee (or open `/pick`). That ball is held for you. Arrow keys move between balls. The five minutes start on the first ball you hold, and the page counts them down. Continue to checkout, enter an email, check the 19+ and in-BC box, and choose the test pay button. The purchase is refused without that box, and it is refused if the five minutes have run out. The card fields are disabled placeholders. Paying records the balls you are paying for and releases any other balls that reservation still held. Buying a held or recorded ball again returns a conflict. Nothing is charged. The confirmation page links to a receipt for each ball. Set `ALLOW_BALL_PICKING` to `false` and restart to try the quantity field instead. It has no cap other than how many balls are still free, and it does not open a reservation first.
 2. **See a purchase.** Open the receipt link from checkout, or paste it on `/purchase`. A seeded sample, which is public demo data already in the migrations, is `/purchase?token=390822ccb06855179424236c3774f960118070866e3030acb0808837a6ca55d3` (ball 3). That link does not reveal the other seeded purchases.
 3. **See the email record.** The buyer's receipt link includes the stored receipt text. `/selections` lists every email-and-ball row for an address, including that text, and asks for the same admin sign-in as offline sales. The receipt stays in D1 even when Resend is not called.
 4. **Record an offline sale.** Either set `ADMIN_TOKEN` in `.dev.vars` and enter it on `/admin`, or set `ADMIN_EMAILS` plus the Google sign-in secrets below and sign in with a listed account. Enter a free ball number and a name and email. That ball locks the same way as an online buy, including when both are attempted together. A buyer can still check out with only the email on the purchase form.
@@ -80,13 +80,15 @@ The Worker and its D1 database are already hosted. What is still outstanding is 
 
 | Path | Role |
 | --- | --- |
-| `wrangler.jsonc` | Worker config, assets, D1 binding, non-secret vars, secret names |
+| `wrangler.jsonc` | Worker config, assets, D1 binding, non-secret vars, secret names, minutely hold sweep |
 | `src/index.ts` | Worker entry |
 | `src/app.ts` | Hono routes for the four flows and Google sign-in |
 | `src/auth.ts` | Admin token fallback and Google admin check |
 | `src/google-auth.ts` | Google OAuth start, callback, and sign-out |
 | `src/session.ts` | Signed session cookie |
 | `src/purchase-engine.ts` | Buy, hold, confirm, offline sale, and the email-and-ball queries |
+| `src/reservations.ts` | Five-minute reservation holds: create, release, pay, and expire |
+| `migrations/0007_reservation_holds.sql` | Reservation session and per-ball hold state |
 | `migrations/0003_email_records.sql` | Stores receipt subject and body on the email row, with the ball id |
 | `src/email/deliver.ts` | Dry-run by default; Resend only when delivery is switched on and a key exists |
 | `src/payments/stripe-test.ts` | Fake test-mode reference. No Stripe HTTP call |
@@ -116,7 +118,11 @@ API routes:
 | `POST /api/selections` | Optional hold. The ball locks as selected until confirm or cancel |
 | `POST /api/purchases/:id/confirm-demo` | Confirm a hold without charging, then the email hook |
 | `POST /api/purchases/:id/cancel` | Release a hold. The email-and-ball row stays |
-| `GET /api/balls` | Ball id, number, and status for the 2,500-ball catalogue. No buyer email |
+| `GET /api/balls` | Ball id, number, and status for the 2,500-ball catalogue. No buyer email. Expired reservations are released first |
+| `GET /api/reservations` | This browser's reservation and the holds still pending payment |
+| `POST /api/reservations` | Hold one open ball. The five minutes start on the first hold in the reservation |
+| `POST /api/reservations/release` | Release one pending hold. The shared deadline does not move |
+| `POST /api/reservations/checkout` | Confirm the paid holds and release any other holds in that reservation |
 | `GET /api/purchases?token=` | One purchase for that receipt token. Email is not a lookup |
 | `GET /api/selections?email=` | Email-and-ball records, admin only. Same data as the route below |
 | `GET /api/admin/selections?email=` | Email-and-ball records for an admin, including receipt text |
