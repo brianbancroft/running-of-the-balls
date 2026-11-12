@@ -812,6 +812,11 @@ function initCheckout(config, balls) {
     });
 }
 async function submitCheckout(config, name, email, pay) {
+    const attest = document.querySelector("#attest");
+    if (!(attest instanceof HTMLInputElement) || !attest.checked) {
+        say("Confirm you are 19 or older and physically in British Columbia.");
+        return;
+    }
     pay.disabled = true;
     writeBuyer(name, email);
     const recorded = [];
@@ -828,7 +833,13 @@ async function submitCheckout(config, name, email, pay) {
                 const ball = fresh.get(n);
                 if (!ball)
                     continue;
-                const result = await buyBall({ email, buyerName: name, ballId: ball.id });
+                const result = await buyBall({
+                    email,
+                    buyerName: name,
+                    ballId: ball.id,
+                    attestAge19: true,
+                    attestInBc: true,
+                });
                 recorded.push({
                     number: n,
                     status: "recorded",
@@ -843,7 +854,12 @@ async function submitCheckout(config, name, email, pay) {
             const freeCount = [...fresh.values()].filter((ball) => isFree(ball)).length;
             const qty = Math.min(readQty(), freeCount);
             for (let index = 0; index < qty; index += 1) {
-                const result = await buyBall({ email, buyerName: name });
+                const result = await buyBall({
+                    email,
+                    buyerName: name,
+                    attestAge19: true,
+                    attestInBc: true,
+                });
                 recorded.push({
                     number: result.purchase.ball.ballNumber,
                     status: "recorded",
@@ -1021,6 +1037,12 @@ function appendPurchase(results, purchase) {
         who.textContent = purchase.buyerName;
         card.append(who);
     }
+    const attested = document.createElement("p");
+    attested.textContent =
+        purchase.attestation.age19 && purchase.attestation.inBc
+            ? `Attested: ${purchase.attestation.text ?? "19 or older and physically in British Columbia."}`
+            : "No age and location attestation is stored for this demo fixture.";
+    card.append(attested);
     const receipt = document.createElement("p");
     receipt.textContent = purchase.emailRecord
         ? `Receipt “${purchase.emailRecord.subject}” — ${purchase.emailRecord.sent ? "sent" : "stored, not sent"}.`
@@ -1260,7 +1282,19 @@ async function initAdmin(balls) {
             note.textContent = "Choose a ball number first.";
             return;
         }
-        void offlineSale({ email, buyerName, ballId, note: String(data.get("note") ?? "") }, token)
+        const attested = data.get("attest") === "yes";
+        if (!attested) {
+            note.textContent = "Confirm the buyer is 19 or older and physically in British Columbia.";
+            return;
+        }
+        void offlineSale({
+            email,
+            buyerName,
+            ballId,
+            note: String(data.get("note") ?? ""),
+            attestAge19: true,
+            attestInBc: true,
+        }, token)
             .then((result) => {
             note.textContent = `Ball ${ballNumber(result.purchase.ball.ballNumber)} recorded for ${result.purchase.buyerEmail}. Charged: no. Email sent: ${result.email.sent ? "yes" : "no"}.`;
             const ball = balls.get(result.purchase.ball.ballNumber);

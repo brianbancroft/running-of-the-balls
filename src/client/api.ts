@@ -26,6 +26,13 @@ export type Purchase = {
   buyerEmail: string;
   buyerName: string | null;
   receiptToken: string;
+  attestation: {
+    age19: boolean;
+    inBc: boolean;
+    at: string | null;
+    by: "buyer" | "admin" | null;
+    text: string | null;
+  };
   ball: Ball;
   emailRecord: { subject: string; sent: boolean; text: string | null } | null;
 };
@@ -59,7 +66,13 @@ export function getBalls(): Promise<Ball[]> {
   return send<{ balls: Ball[] }>("/api/balls").then((payload) => payload.balls);
 }
 
-export function buyBall(body: { email: string; buyerName: string; ballId?: number }): Promise<{
+export function buyBall(body: {
+  email: string;
+  buyerName: string;
+  ballId?: number;
+  attestAge19: true;
+  attestInBc: true;
+}): Promise<{
   purchase: Purchase;
   email: { sent: boolean; mode: string; preview: { subject: string; text: string } };
 }> {
@@ -71,7 +84,14 @@ export function buyBall(body: { email: string; buyerName: string; ballId?: numbe
 }
 
 export function offlineSale(
-  body: { email: string; buyerName: string; ballId: number; note: string },
+  body: {
+    email: string;
+    buyerName: string;
+    ballId: number;
+    note: string;
+    attestAge19: true;
+    attestInBc: true;
+  },
   token: string,
 ): Promise<{ purchase: Purchase; email: { sent: boolean } }> {
   const headers: Record<string, string> = {

@@ -7,9 +7,11 @@ import { planEmailDelivery, sendSelectionReceipt } from "../src/email/deliver";
 import worker from "../src/index";
 import { buildDemoPayment } from "../src/payments/stripe-test";
 import { marqueeNumbers } from "../src/client/format";
+import { BUYER_ATTESTATION_TEXT } from "../src/compliance";
 import { purchaseBall } from "../src/purchase-engine";
 
 const SEEDED_SOLD_TOKEN = "390822ccb06855179424236c3774f960118070866e3030acb0808837a6ca55d3";
+const BUYER_ATTESTATION = { by: "buyer" as const, text: BUYER_ATTESTATION_TEXT };
 
 async function call(path: string, init?: RequestInit): Promise<Response> {
   const ctx = createExecutionContext();
@@ -21,7 +23,15 @@ async function call(path: string, init?: RequestInit): Promise<Response> {
 function post(path: string, body: unknown, token?: string): Promise<Response> {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (token) headers.authorization = `Bearer ${token}`;
-  return call(path, { method: "POST", headers, body: JSON.stringify(body) });
+  const needsAttestation =
+    path === "/api/purchases" ||
+    path === "/api/admin/offline-sales" ||
+    path.includes("/confirm-demo");
+  const payload =
+    needsAttestation && body !== null && typeof body === "object" && !Array.isArray(body)
+      ? { attestAge19: true, attestInBc: true, ...(body as Record<string, unknown>) }
+      : body;
+  return call(path, { method: "POST", headers, body: JSON.stringify(payload) });
 }
 
 async function callAs(
@@ -385,7 +395,7 @@ describe("Running of the Balls demo", () => {
     await expect(
       purchaseBall(
         env.DB,
-        { email: "pick.on@example.com", buyerName: null, ballId: undefined },
+        { email: "pick.on@example.com", buyerName: null, ballId: undefined, attestation: BUYER_ATTESTATION },
         config,
         "http://example.com",
       ),
@@ -393,14 +403,14 @@ describe("Running of the Balls demo", () => {
     await expect(
       purchaseBall(
         env.DB,
-        { email: "pick.off@example.com", buyerName: null, ballId: 70 },
+        { email: "pick.off@example.com", buyerName: null, ballId: 70, attestation: BUYER_ATTESTATION },
         { ...config, allowBallPicking: false },
         "http://example.com",
       ),
     ).rejects.toThrow(/turned off/);
     const assigned = await purchaseBall(
       env.DB,
-      { email: "random.demo@example.com", buyerName: null, ballId: undefined },
+      { email: "random.demo@example.com", buyerName: null, ballId: undefined, attestation: BUYER_ATTESTATION },
       { ...config, allowBallPicking: false },
       "http://example.com",
     );
@@ -806,7 +816,12 @@ describe("Running of the Balls demo", () => {
       Array.from({ length: 8 }, (_, index) =>
         purchaseBall(
           env.DB,
-          { email: `assigned.${index}@example.com`, buyerName: null, ballId: undefined },
+          {
+            email: `assigned.${index}@example.com`,
+            buyerName: null,
+            ballId: undefined,
+            attestation: BUYER_ATTESTATION,
+          },
           { ...config, allowBallPicking: false },
           "http://example.com",
         ),
@@ -815,5 +830,171 @@ describe("Running of the Balls demo", () => {
     const ids = results.map((result) => result.purchase.ball.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(results.every((result) => result.purchase.charged === false)).toBe(true);
+    expect(results.every((result) => result.purchase.attestation.age19 && result.purchase.attestation.inBc)).toBe(
+      true,
+    );
+  });
+
+  it("refuses an online purchase without a 19+ and in-BC attestation", async () => {
+    const missing = await call("/api/purchases", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "no.attest@example.com", buyerName: "Ada", ballId: 2200 }),
+    });
+    expect(missing.status).toBe(400);
+    expect(await missing.json()).toMatchObject({
+      error: "Confirm you are 19 or older and physically in British Columbia.",
+    });
+    const oneSided = await call("/api/purchases", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        email: "no.attest@example.com",
+        buyerName: "Ada",
+        ballId: 2200,
+        attestAge19: true,
+        attestInBc: false,
+      }),
+    });
+    expect(oneSided.status).toBe(400);
+    const asText = await call("/api/purchases", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        email: "no.attest@example.com",
+        ballId: 2200,
+        attestAge19: "true",
+        attestInBc: "true",
+      }),
+    });
+    expect(asText.status).toBe(400);
+    const ball = await env.DB.prepare(`SELECT status FROM balls WHERE id = 2200`).first<{ status: string }>();
+    expect(ball?.status).toBe("available");
+
+    const bought = await post("/api/purchases", {
+      email: "attested.buyer@example.com",
+      buyerName: "Ada",
+      ballId: 2200,
+    });
+    expect(bought.status).toBe(201);
+    const body = await bought.json<{
+      purchase: { attestation: { age19: boolean; inBc: boolean; by: string; text: string; at: string } };
+    }>();
+    expect(body.purchase.attestation.age19).toBe(true);
+    expect(body.purchase.attestation.inBc).toBe(true);
+    expect(body.purchase.attestation.by).toBe("buyer");
+    expect(body.purchase.attestation.text).toBe(BUYER_ATTESTATION_TEXT);
+    expect(body.purchase.attestation.at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    const stored = await env.DB.prepare(
+      `SELECT attested_age_19, attested_in_bc, attested_by, attestation_text
+       FROM purchases WHERE buyer_email = ?`,
+    )
+      .bind("attested.buyer@example.com")
+      .first<{
+        attested_age_19: number;
+        attested_in_bc: number;
+        attested_by: string;
+        attestation_text: string;
+      }>();
+    expect(stored).toEqual({
+      attested_age_19: 1,
+      attested_in_bc: 1,
+      attested_by: "buyer",
+      attestation_text: BUYER_ATTESTATION_TEXT,
+    });
+  });
+
+  it("refuses an offline sale without the same attestation and stores it when present", async () => {
+    const missing = await call("/api/admin/offline-sales", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer test-admin-token",
+      },
+      body: JSON.stringify({
+        email: "table.attest@example.com",
+        buyerName: "Table",
+        ballId: 2201,
+        note: "Club table.",
+      }),
+    });
+    expect(missing.status).toBe(400);
+    const ball = await env.DB.prepare(`SELECT status FROM balls WHERE id = 2201`).first<{ status: string }>();
+    expect(ball?.status).toBe("available");
+
+    const recorded = await post(
+      "/api/admin/offline-sales",
+      {
+        email: "table.attest@example.com",
+        buyerName: "Table",
+        ballId: 2201,
+        note: "Club table.",
+        attestAge19: false,
+        attestInBc: true,
+      },
+      "test-admin-token",
+    );
+    expect(recorded.status).toBe(400);
+
+    const ok = await post(
+      "/api/admin/offline-sales",
+      {
+        email: "table.attest@example.com",
+        buyerName: "Table",
+        ballId: 2201,
+        note: "Club table.",
+      },
+      "test-admin-token",
+    );
+    expect(ok.status).toBe(201);
+    const body = await ok.json<{
+      purchase: { attestation: { age19: boolean; inBc: boolean; by: string; text: string } };
+    }>();
+    expect(body.purchase.attestation).toMatchObject({
+      age19: true,
+      inBc: true,
+      by: "admin",
+      text: "The buyer confirmed they are 19 or older and physically in British Columbia.",
+    });
+  });
+
+  it("requires the same attestation before a hold can be confirmed", async () => {
+    const held = await post("/api/selections", {
+      email: "hold.attest@example.com",
+      buyerName: "Hold",
+      ballId: 2202,
+    });
+    expect(held.status).toBe(201);
+    const heldBody = await held.json<{ purchase: { id: string; attestation: { age19: boolean } } }>();
+    expect(heldBody.purchase.attestation.age19).toBe(false);
+    const missing = await call(`/api/purchases/${heldBody.purchase.id}/confirm-demo`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "hold.attest@example.com" }),
+    });
+    expect(missing.status).toBe(400);
+    const stillHeld = await env.DB.prepare(`SELECT status FROM balls WHERE id = 2202`).first<{ status: string }>();
+    expect(stillHeld?.status).toBe("selected");
+    const confirmed = await post(`/api/purchases/${heldBody.purchase.id}/confirm-demo`, {
+      email: "hold.attest@example.com",
+    });
+    expect(confirmed.status).toBe(200);
+    const body = await confirmed.json<{ purchase: { attestation: { age19: boolean; inBc: boolean; by: string } } }>();
+    expect(body.purchase.attestation).toMatchObject({ age19: true, inBc: true, by: "buyer" });
+  });
+
+  it("leaves seeded demo fixtures without an attestation", async () => {
+    const response = await call(`/api/purchases?token=${SEEDED_SOLD_TOKEN}`);
+    expect(response.status).toBe(200);
+    const body = await response.json<{
+      purchase: { attestation: { age19: boolean; inBc: boolean; at: string | null; by: string | null } };
+    }>();
+    expect(body.purchase.attestation).toEqual({
+      age19: false,
+      inBc: false,
+      at: null,
+      by: null,
+      text: null,
+    });
   });
 });

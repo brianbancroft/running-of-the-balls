@@ -11,6 +11,19 @@ export type BallStatus = "available" | "selected" | "sold";
 export type PurchaseStatus = "demo_pending" | "demo_confirmed" | "cancelled";
 export type PaymentMode = "stripe_test_fake" | "offline_demo";
 
+export type AttestationRecord = {
+  age19: boolean;
+  inBc: boolean;
+  at: string | null;
+  by: "buyer" | "admin" | null;
+  text: string | null;
+};
+
+export type SaleAttestation = {
+  by: "buyer" | "admin";
+  text: string;
+};
+
 export type Ball = {
   id: number;
   ballNumber: number;
@@ -31,6 +44,7 @@ export type PurchaseRecord = {
   buyerEmail: string;
   buyerName: string | null;
   receiptToken: string;
+  attestation: AttestationRecord;
   selectionId: string;
   ball: Ball;
   emailRecord: StoredEmail | null;
@@ -83,6 +97,11 @@ type JoinedRow = {
   purchase_created_at: string;
   purchase_updated_at: string;
   receipt_token: string;
+  attested_age_19: number;
+  attested_in_bc: number;
+  attested_at: string | null;
+  attested_by: "buyer" | "admin" | null;
+  attestation_text: string | null;
   selection_id: string;
   selection_email: string;
   selection_created_at: string;
@@ -121,6 +140,11 @@ const JOINED = `
     p.created_at AS purchase_created_at,
     p.updated_at AS purchase_updated_at,
     p.receipt_token,
+    p.attested_age_19,
+    p.attested_in_bc,
+    p.attested_at,
+    p.attested_by,
+    p.attestation_text,
     s.id AS selection_id,
     s.email AS selection_email,
     s.created_at AS selection_created_at,
@@ -213,6 +237,13 @@ export function toPurchase(row: JoinedRow): PurchaseRecord {
     buyerEmail: row.buyer_email,
     buyerName: row.buyer_name,
     receiptToken: row.receipt_token,
+    attestation: {
+      age19: row.attested_age_19 === 1,
+      inBc: row.attested_in_bc === 1,
+      at: row.attested_at,
+      by: row.attested_by,
+      text: row.attestation_text,
+    },
     selectionId: row.selection_id,
     ball: ballFromJoined(row),
     emailRecord: emailFromRow(row),
@@ -501,6 +532,7 @@ export async function confirmDemoPurchase(
   db: D1Database,
   purchaseId: string,
   email: string,
+  attestation: SaleAttestation,
   config: AppConfig,
   origin: string,
 ): Promise<ConfirmedPurchase> {
@@ -551,7 +583,14 @@ export async function confirmDemoPurchase(
     db
       .prepare(
         `UPDATE purchases
-         SET status = 'demo_confirmed', stripe_test_reference = ?, updated_at = ?
+         SET status = 'demo_confirmed',
+             stripe_test_reference = ?,
+             updated_at = ?,
+             attested_age_19 = 1,
+             attested_in_bc = 1,
+             attested_at = ?,
+             attested_by = ?,
+             attestation_text = ?
          WHERE id = ?
            AND buyer_email = ?
            AND status = 'demo_pending'
@@ -567,7 +606,15 @@ export async function confirmDemoPurchase(
                AND b.status = 'selected'
            )`,
       )
-      .bind(payment.stripeTestReference, now, purchaseId, email),
+      .bind(
+        payment.stripeTestReference,
+        now,
+        now,
+        attestation.by,
+        attestation.text,
+        purchaseId,
+        email,
+      ),
     db
       .prepare(
         `UPDATE balls
@@ -685,6 +732,7 @@ async function writeLockedSale(
     purchaseId: string;
     selectionId: string;
     receiptToken: string;
+    attestation: SaleAttestation;
     receipt: ReturnType<typeof buildSelectionReceipt>;
     dispatchMode: "dry_run" | "resend";
   },
@@ -700,9 +748,10 @@ async function writeLockedSale(
         `INSERT INTO purchases (
            id, buyer_email, buyer_name, status, payment_mode,
            stripe_test_reference, offline_note, amount_cents, currency, demo_only,
-           receipt_token, created_at, updated_at
+           receipt_token, attested_age_19, attested_in_bc, attested_at, attested_by,
+           attestation_text, created_at, updated_at
          )
-         SELECT ?, ?, ?, 'demo_confirmed', ?, ?, ?, ?, 'CAD', 1, ?, ?, ?
+         SELECT ?, ?, ?, 'demo_confirmed', ?, ?, ?, ?, 'CAD', 1, ?, 1, 1, ?, ?, ?, ?, ?
          WHERE changes() = 1`,
       )
       .bind(
@@ -714,6 +763,9 @@ async function writeLockedSale(
         input.offlineNote,
         input.amountCents,
         input.receiptToken,
+        now,
+        input.attestation.by,
+        input.attestation.text,
         now,
         now,
       ),
@@ -773,7 +825,12 @@ async function writeLockedSale(
 
 export async function purchaseBall(
   db: D1Database,
-  input: { email: string; buyerName: string | null; ballId: number | undefined },
+  input: {
+    email: string;
+    buyerName: string | null;
+    ballId: number | undefined;
+    attestation: SaleAttestation;
+  },
   config: AppConfig,
   origin: string,
 ): Promise<ConfirmedPurchase> {
@@ -831,6 +888,7 @@ export async function purchaseBall(
         purchaseId,
         selectionId,
         receiptToken,
+        attestation: input.attestation,
         receipt,
         dispatchMode: plan.mode,
       });
@@ -847,7 +905,13 @@ export async function purchaseBall(
 
 export async function recordOfflineSale(
   db: D1Database,
-  input: { email: string; buyerName: string | null; ballId: number; note: string },
+  input: {
+    email: string;
+    buyerName: string | null;
+    ballId: number;
+    note: string;
+    attestation: SaleAttestation;
+  },
   config: AppConfig,
   origin: string,
 ): Promise<ConfirmedPurchase> {
@@ -890,6 +954,7 @@ export async function recordOfflineSale(
     purchaseId,
     selectionId,
     receiptToken,
+    attestation: input.attestation,
     receipt,
     dispatchMode: plan.mode,
   });

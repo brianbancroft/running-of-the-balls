@@ -37,6 +37,10 @@
       <label for="admin-name">Name <input id="admin-name" name="name" autocomplete="name" maxlength="80"></label>
       <label for="admin-ball">Ball number <input id="admin-ball" name="ball" inputmode="numeric" required></label>
       <label>Note <textarea name="note" maxlength="200" placeholder="Recorded at the club table in the demo."></textarea></label>
+      <label class="attest">
+        <input name="attest" type="checkbox" value="yes">
+        <span>The buyer confirmed they are 19 or older and physically in British Columbia.</span>
+      </label>
       <button class="btn red" type="submit">Record offline demo sale</button>
       <p id="admin-status" class="fine"></p>
     </form>

@@ -71,6 +71,21 @@ export function parseReceiptToken(value: unknown): string {
   return token;
 }
 
+export type BuyerAttestation = {
+  age19: true;
+  inBc: true;
+};
+
+export function parseAttestation(body: Record<string, unknown>): BuyerAttestation {
+  if (body.attestAge19 !== true || body.attestInBc !== true) {
+    throw new HttpError(
+      400,
+      "Confirm you are 19 or older and physically in British Columbia.",
+    );
+  }
+  return { age19: true, inBc: true };
+}
+
 export function parsePurchaseId(value: string): string {
   if (!UUID_PATTERN.test(value)) {
     throw new HttpError(400, "That purchase id is not valid.");

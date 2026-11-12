@@ -340,7 +340,9 @@ button.ball{appearance:none;color:inherit;font:inherit}
 .admin-form{display:grid;gap:14px;max-width:520px;margin-top:24px;padding:28px}
 .admin-gate{display:grid;gap:14px;max-width:520px;margin-top:24px;padding:28px}
 .admin-form summary{font-weight:700;cursor:pointer}
-.admin-form input,.admin-form textarea{width:100%;font:inherit;border:1.5px solid #D5CDC5;border-radius:12px;padding:12px 14px;background:#fff}
+.admin-form input:not([type=checkbox]),.admin-form textarea{width:100%;font:inherit;border:1.5px solid #D5CDC5;border-radius:12px;padding:12px 14px;background:#fff}
+.attest{display:flex;gap:12px;align-items:flex-start;margin-top:18px;font-size:15.5px;line-height:1.4;font-weight:600}
+.attest input{width:20px;height:20px;margin-top:2px;flex:none}
 @media (max-width:800px){
   .site-head{height:auto;flex-wrap:wrap;padding:12px 16px;gap:12px}
   .site-head nav{order:3;width:100%;margin-left:0;gap:16px;flex-wrap:wrap}

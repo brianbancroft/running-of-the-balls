@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { assertAdmin } from "./auth";
+import { ADMIN_ATTESTATION_TEXT, BUYER_ATTESTATION_TEXT } from "./compliance";
 import { DISCLAIMER, googleSignInReady, readConfig } from "./config";
 import { beginGoogleSignIn, clearSession, finishGoogleSignIn } from "./google-auth";
 import { HttpError, isMissingSchema, isRecord } from "./http";
@@ -17,6 +18,7 @@ import {
   recordOfflineSale,
 } from "./purchase-engine";
 import {
+  parseAttestation,
   parseEmail,
   parseName,
   parseNote,
@@ -126,12 +128,15 @@ app.post("/api/selections", async (c) => {
 app.post("/api/purchases", async (c) => {
   const config = readConfig(c.env);
   const body = await readJsonObject(c);
+  const email = parseEmail(body.email);
+  parseAttestation(body);
   const result = await purchaseBall(
     c.env.DB,
     {
-      email: parseEmail(body.email),
+      email,
       buyerName: parseName(body.buyerName),
       ballId: parseOptionalBallId(body.ballId),
+      attestation: { by: "buyer", text: BUYER_ATTESTATION_TEXT },
     },
     config,
     originOf(c),
@@ -151,7 +156,15 @@ app.post("/api/purchases/:id/confirm-demo", async (c) => {
   const purchaseId = parsePurchaseId(c.req.param("id"));
   const body = await readJsonObject(c);
   const email = parseEmail(body.email);
-  const result = await confirmDemoPurchase(c.env.DB, purchaseId, email, config, originOf(c));
+  parseAttestation(body);
+  const result = await confirmDemoPurchase(
+    c.env.DB,
+    purchaseId,
+    email,
+    { by: "buyer", text: BUYER_ATTESTATION_TEXT },
+    config,
+    originOf(c),
+  );
   logInfo({
     message: "demo purchase confirmed",
     purchaseId,
@@ -193,13 +206,16 @@ app.post("/api/admin/offline-sales", async (c) => {
   const body = await readJsonObject(c);
   const ballId = parseOptionalBallId(body.ballId);
   if (ballId == null) throw new HttpError(400, "Choose a ball.");
+  const email = parseEmail(body.email);
+  parseAttestation(body);
   const result = await recordOfflineSale(
     c.env.DB,
     {
-      email: parseEmail(body.email),
+      email,
       buyerName: parseName(body.buyerName),
       ballId,
       note: parseNote(body.note),
+      attestation: { by: "admin", text: ADMIN_ATTESTATION_TEXT },
     },
     config,
     originOf(c),
