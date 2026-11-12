@@ -62,3 +62,20 @@ export function marqueeNumbers(balls, count, seed) {
 export function money(cents, currency) {
     return new Intl.NumberFormat("en-CA", { style: "currency", currency }).format(cents / 100);
 }
+export function customerHoldSummary(reservation) {
+    const pending = reservation.holds.filter((hold) => hold.state === "pending_payment");
+    const open = reservation.session?.status === "open" && pending.length > 0;
+    return {
+        confirmed: reservation.owned.map((ball) => ({
+            ballId: ball.ballId,
+            ballNumber: ball.ballNumber,
+            receiptToken: ball.receiptToken,
+        })),
+        pending: pending.map((hold) => ({
+            ballId: hold.ballId,
+            ballNumber: hold.ballNumber,
+            expiresAt: hold.expiresAt,
+        })),
+        remainingMs: open ? Math.max(0, reservation.session?.remainingMs ?? 0) : 0,
+    };
+}

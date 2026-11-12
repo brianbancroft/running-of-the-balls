@@ -124,14 +124,23 @@ export type ReservationHold = {
   expiresAt: string;
 };
 
+export type OwnedBall = {
+  ballId: number;
+  ballNumber: number;
+  purchaseId: string;
+  receiptToken: string;
+};
+
 export type Reservation = {
   session: {
     id: string;
     status: "open" | "completed" | "expired";
     createdAt: string;
     expiresAt: string;
+    remainingMs: number;
   } | null;
   holds: ReservationHold[];
+  owned: OwnedBall[];
   hold?: ReservationHold;
 };
 

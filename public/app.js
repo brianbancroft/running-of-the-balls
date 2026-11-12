@@ -1,5 +1,5 @@
 import { buyBall, checkoutReservation, getBalls, getConfig, getReservation, getSession, holdReservation, offlineSale, purchaseForToken, releaseReservation, selectionsFor, } from "./api.js";
-import { ballColour, ballNumber, marqueeNumbers, money } from "./format.js";
+import { ballColour, ballNumber, customerHoldSummary, marqueeNumbers, money } from "./format.js";
 import { readBuyer, readDeadline, readPaused, readPicks, readQty, readReceipt, writeBuyer, writeDeadline, writePaused, writePicks, writeQty, writeReceipt, fieldSeed, } from "./store.js";
 function inventoryOf(balls) {
     return new Map(balls.map((ball) => [ball.ballNumber, ball]));
@@ -327,10 +327,10 @@ function initHome(config, balls, total, free, soldOut) {
     const drawLegend = () => {
         legend.replaceChildren();
         const items = soldOut
-            ? [["sold", "Sold"]]
+            ? [["sold", "Held or sold"]]
             : pickable
-                ? [["available", "Available"], ["mine", "Yours"], ["sold", "Sold"]]
-                : [["available", "Available"], ["sold", "Sold"]];
+                ? [["available", "Available"], ["mine", "Yours"], ["sold", "Held or sold"]]
+                : [["available", "Available"], ["sold", "Held or sold"]];
         for (const [state, text] of items) {
             const span = document.createElement("span");
             span.className = "k";
@@ -1250,9 +1250,71 @@ function appendPurchase(results, purchase) {
     }
     results.append(card);
 }
+function renderCustomerBalls(host, reservation) {
+    const summary = customerHoldSummary(reservation);
+    host.replaceChildren();
+    const show = summary.confirmed.length > 0 || summary.pending.length > 0;
+    host.hidden = !show;
+    if (!show) {
+        writeDeadline(null);
+        return;
+    }
+    if (summary.confirmed.length > 0) {
+        const title = document.createElement("div");
+        title.className = "eyebrow";
+        title.textContent = "Confirmed";
+        host.append(title);
+        for (const ball of summary.confirmed) {
+            const card = document.createElement("article");
+            card.className = "record";
+            const heading = document.createElement("h3");
+            heading.textContent = `Ball ${ballNumber(ball.ballNumber)}`;
+            const detail = document.createElement("p");
+            detail.textContent = "Confirmed. This ball is yours.";
+            const link = document.createElement("a");
+            link.href = `/purchase?token=${encodeURIComponent(ball.receiptToken)}`;
+            link.textContent = `Receipt for ball ${ballNumber(ball.ballNumber)}`;
+            card.append(heading, detail, link);
+            host.append(card);
+        }
+    }
+    if (summary.pending.length === 0) {
+        writeDeadline(null);
+        return;
+    }
+    writeDeadline(reservation.session?.expiresAt ?? null);
+    const title = document.createElement("div");
+    title.className = "eyebrow";
+    title.textContent = "Held for payment";
+    const clock = document.createElement("p");
+    clock.className = "hold-clock";
+    clock.dataset.holdClock = "true";
+    clock.textContent = holdClockText();
+    host.append(title, clock);
+    for (const hold of summary.pending) {
+        const card = document.createElement("article");
+        card.className = "record";
+        const heading = document.createElement("h3");
+        heading.textContent = `Ball ${ballNumber(hold.ballNumber)}`;
+        const detail = document.createElement("p");
+        detail.textContent = "Held. Not confirmed until payment.";
+        card.append(heading, detail);
+        host.append(card);
+    }
+    armHoldClock();
+}
 async function initPurchase() {
     const form = document.querySelector("#lookup");
     const results = document.querySelector("#results");
+    const yours = document.querySelector("#yours");
+    if (yours instanceof HTMLElement) {
+        try {
+            renderCustomerBalls(yours, await getReservation());
+        }
+        catch {
+            yours.hidden = true;
+        }
+    }
     if (!(form instanceof HTMLFormElement) || !(results instanceof HTMLElement))
         return;
     const input = form.querySelector("input");

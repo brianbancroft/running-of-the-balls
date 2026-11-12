@@ -1,7 +1,10 @@
 import type { AppConfig } from "./config";
+import { expireDueHolds } from "./hold-expiry";
 import { HttpError } from "./http";
 import type { ConfirmedPurchase, SaleAttestation } from "./purchase-engine";
 import { sellFromReservation } from "./purchase-engine";
+
+export { expireDueHolds };
 
 export const RESERVATION_COOKIE = "rob_reservation";
 export const HOLD_WINDOW_MS = 5 * 60 * 1000;
@@ -23,11 +26,20 @@ export type ReservationSessionView = {
   status: SessionStatus;
   createdAt: string;
   expiresAt: string;
+  remainingMs: number;
+};
+
+export type OwnedBallView = {
+  ballId: number;
+  ballNumber: number;
+  purchaseId: string;
+  receiptToken: string;
 };
 
 export type ReservationView = {
   session: ReservationSessionView | null;
   holds: ReservationHoldView[];
+  owned: OwnedBallView[];
 };
 
 type SessionRow = {
@@ -54,12 +66,15 @@ function isConstraint(error: unknown): boolean {
   return error instanceof Error && /UNIQUE constraint failed/i.test(error.message);
 }
 
-function toSession(row: SessionRow): ReservationSessionView {
+function toSession(row: SessionRow, nowMs: number): ReservationSessionView {
+  const expiresMs = Date.parse(row.expires_at);
+  const open = row.status === "open" && expiresMs > nowMs;
   return {
     id: row.id,
     status: row.status,
     createdAt: row.created_at,
     expiresAt: row.expires_at,
+    remainingMs: open ? expiresMs - nowMs : 0,
   };
 }
 
@@ -114,53 +129,37 @@ async function pendingHolds(db: D1Database, sessionId: string): Promise<HoldRow[
   return result.results;
 }
 
-async function viewFor(db: D1Database, sessionId: string | null, nowIso: string): Promise<ReservationView> {
-  if (!sessionId) return { session: null, holds: [] };
-  const session = await loadSession(db, sessionId);
-  if (!session) return { session: null, holds: [] };
-  if (!isOpen(session, nowIso)) return { session: toSession(session), holds: [] };
-  const holds = await pendingHolds(db, sessionId);
-  return { session: toSession(session), holds: holds.map(toHold) };
+async function ownedBalls(db: D1Database, sessionId: string): Promise<OwnedBallView[]> {
+  const result = await db
+    .prepare(
+      `SELECT b.id AS ball_id, b.ball_number, p.id AS purchase_id, p.receipt_token
+       FROM ball_holds h
+       JOIN purchases p ON p.id = h.purchase_id
+       JOIN balls b ON b.id = h.ball_id
+       WHERE h.session_id = ?
+         AND h.state = 'confirmed'
+         AND p.status = 'demo_confirmed'
+       ORDER BY b.ball_number ASC`,
+    )
+    .bind(sessionId)
+    .all<{ ball_id: number; ball_number: number; purchase_id: string; receipt_token: string }>();
+  return result.results.map((row) => ({
+    ballId: row.ball_id,
+    ballNumber: row.ball_number,
+    purchaseId: row.purchase_id,
+    receiptToken: row.receipt_token,
+  }));
 }
 
-export async function expireDueHolds(db: D1Database, now = new Date()): Promise<number> {
-  const nowIso = now.toISOString();
-  const due = await db
-    .prepare(
-      `SELECT COUNT(*) AS n
-       FROM ball_holds
-       WHERE state = 'pending_payment' AND expires_at <= ?`,
-    )
-    .bind(nowIso)
-    .first<{ n: number }>();
-  await db.batch([
-    db
-      .prepare(
-        `UPDATE balls
-         SET status = 'available'
-         WHERE status = 'selected'
-           AND id IN (
-             SELECT ball_id FROM ball_holds
-             WHERE state = 'pending_payment' AND expires_at <= ?
-           )`,
-      )
-      .bind(nowIso),
-    db
-      .prepare(
-        `UPDATE ball_holds
-         SET state = 'expired', released_at = ?
-         WHERE state = 'pending_payment' AND expires_at <= ?`,
-      )
-      .bind(nowIso, nowIso),
-    db
-      .prepare(
-        `UPDATE reservation_sessions
-         SET status = 'expired'
-         WHERE status = 'open' AND expires_at <= ?`,
-      )
-      .bind(nowIso),
-  ]);
-  return due?.n ?? 0;
+async function viewFor(db: D1Database, sessionId: string | null, nowIso: string): Promise<ReservationView> {
+  if (!sessionId) return { session: null, holds: [], owned: [] };
+  const session = await loadSession(db, sessionId);
+  if (!session) return { session: null, holds: [], owned: [] };
+  const nowMs = Date.parse(nowIso);
+  const owned = await ownedBalls(db, sessionId);
+  if (!isOpen(session, nowIso)) return { session: toSession(session, nowMs), holds: [], owned };
+  const holds = await pendingHolds(db, sessionId);
+  return { session: toSession(session, nowMs), holds: holds.map(toHold), owned };
 }
 
 export async function reservationForSession(
@@ -251,7 +250,7 @@ export async function releaseForSession(
 ): Promise<ReservationView> {
   const nowIso = now.toISOString();
   await expireDueHolds(db, now);
-  if (!sessionId) return { session: null, holds: [] };
+  if (!sessionId) return { session: null, holds: [], owned: [] };
   const session = await loadSession(db, sessionId);
   if (!session || !isOpen(session, nowIso)) return viewFor(db, sessionId, nowIso);
   await db.batch([

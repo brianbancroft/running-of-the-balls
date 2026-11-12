@@ -72,3 +72,31 @@ export function marqueeNumbers(
 export function money(cents: number, currency: string): string {
   return new Intl.NumberFormat("en-CA", { style: "currency", currency }).format(cents / 100);
 }
+
+export type CustomerHoldSummary = {
+  confirmed: Array<{ ballId: number; ballNumber: number; receiptToken: string }>;
+  pending: Array<{ ballId: number; ballNumber: number; expiresAt: string }>;
+  remainingMs: number;
+};
+
+export function customerHoldSummary(reservation: {
+  session: { status: string; remainingMs: number } | null;
+  holds: Array<{ ballId: number; ballNumber: number; state: string; expiresAt: string }>;
+  owned: Array<{ ballId: number; ballNumber: number; receiptToken: string }>;
+}): CustomerHoldSummary {
+  const pending = reservation.holds.filter((hold) => hold.state === "pending_payment");
+  const open = reservation.session?.status === "open" && pending.length > 0;
+  return {
+    confirmed: reservation.owned.map((ball) => ({
+      ballId: ball.ballId,
+      ballNumber: ball.ballNumber,
+      receiptToken: ball.receiptToken,
+    })),
+    pending: pending.map((hold) => ({
+      ballId: hold.ballId,
+      ballNumber: hold.ballNumber,
+      expiresAt: hold.expiresAt,
+    })),
+    remainingMs: open ? Math.max(0, reservation.session?.remainingMs ?? 0) : 0,
+  };
+}

@@ -1,5 +1,6 @@
 import type { AppConfig } from "./config";
 import { assertPaymentsAllowed } from "./config";
+import { expireDueHolds } from "./hold-expiry";
 import type { EmailDeliveryResult } from "./email/deliver";
 import { planEmailDelivery, previewResult, sendSelectionReceipt } from "./email/deliver";
 import { buildSelectionReceipt, receiptLink } from "./email/receipt";
@@ -735,14 +736,26 @@ async function writeLockedSale(
     attestation: SaleAttestation;
     receipt: ReturnType<typeof buildSelectionReceipt>;
     dispatchMode: "dry_run" | "resend";
+    nowIso: string;
   },
 ): Promise<void> {
-  const now = new Date().toISOString();
+  const now = input.nowIso;
   const dispatchId = crypto.randomUUID();
   const results = await db.batch([
     db
-      .prepare(`UPDATE balls SET status = 'sold' WHERE id = ? AND status = 'available'`)
-      .bind(input.ballId),
+      .prepare(
+        `UPDATE balls
+         SET status = 'sold'
+         WHERE id = ?
+           AND status = 'available'
+           AND NOT EXISTS (
+             SELECT 1 FROM ball_holds
+             WHERE ball_id = ?
+               AND state = 'pending_payment'
+               AND expires_at > ?
+           )`,
+      )
+      .bind(input.ballId, input.ballId, input.nowIso),
     db
       .prepare(
         `INSERT INTO purchases (
@@ -1006,6 +1019,9 @@ export async function purchaseBall(
   origin: string,
 ): Promise<ConfirmedPurchase> {
   assertPaymentsAllowed(config);
+  const now = new Date();
+  const nowIso = now.toISOString();
+  await expireDueHolds(db, now);
   const attempts = config.allowBallPicking ? 1 : 3;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const ballId = await chooseBall(db, input.ballId, config);
@@ -1062,6 +1078,7 @@ export async function purchaseBall(
         attestation: input.attestation,
         receipt,
         dispatchMode: plan.mode,
+        nowIso,
       });
     } catch (error) {
       if (error instanceof HttpError && error.status === 409 && !config.allowBallPicking) continue;
@@ -1087,9 +1104,20 @@ export async function recordOfflineSale(
   origin: string,
 ): Promise<ConfirmedPurchase> {
   assertPaymentsAllowed(config);
+  const now = new Date();
+  const nowIso = now.toISOString();
+  await expireDueHolds(db, now);
   const ball = await getBall(db, input.ballId);
   if (!ball) throw new HttpError(404, "That ball does not exist.");
-  if (ball.status === "selected") {
+  const liveHold = await db
+    .prepare(
+      `SELECT id
+       FROM ball_holds
+       WHERE ball_id = ? AND state = 'pending_payment' AND expires_at > ?`,
+    )
+    .bind(input.ballId, nowIso)
+    .first<{ id: string }>();
+  if (liveHold || ball.status === "selected") {
     throw new HttpError(409, "That ball is held. Cancel the hold before an offline demo record.");
   }
   if (ball.status === "sold") throw new HttpError(409, "That ball is already recorded.");
@@ -1128,6 +1156,7 @@ export async function recordOfflineSale(
     attestation: input.attestation,
     receipt,
     dispatchMode: plan.mode,
+    nowIso,
   });
   const saved = await loadPurchase(db, purchaseId);
   if (!saved) throw new HttpError(500, "Could not record the offline demo sale.");
