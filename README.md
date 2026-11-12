@@ -96,6 +96,7 @@ The Worker, its D1 database, and [https://balls.bancroft.io](https://balls.bancr
 | `public/checkout.html` | Stripe test-mode checkout |
 | `public/confirmation.html` | Test receipt |
 | `public/styles.css` | Kin red / navy tokens and ball states |
+| `public/fonts/` | Self-hosted Bricolage Grotesque and Source Sans 3, SIL OFL 1.1 |
 | `public/purchase.html` | One purchase, opened with its receipt token |
 | `public/selections.html` | Admin email-and-ball records |
 | `public/admin.html` | Offline demo sales |
@@ -178,6 +179,10 @@ The Workers runtime (`workerd`) is Apache-2.0. Using the hosted Cloudflare servi
 Permission to use the official Kin Canada and Kinsmen Club of Ladysmith marks on this open-source demo is granted. The header uses `public/marks/kinsmen-club-of-ladysmith-trim.png` on white. The navy footer uses `public/marks/kin-canada-emblem.png` and credits Ladysmith Kinsmen / Kin Canada.
 
 Those marks are trademarks of Kin Canada and the Kinsmen Club of Ladysmith. They are not licensed under the MIT license that covers the rest of this repository. Do not treat the MIT grant as permission to reuse the marks.
+
+### Type
+
+The pages use Bricolage Grotesque and Source Sans 3, self-hosted from `public/fonts/`, so a visit does not call Google Fonts. Both are under the SIL Open Font License 1.1, included beside the files. Source Sans 3 has the reserved name "Source". These font files are not covered by the MIT license.
 
 ### Dependency licenses
 

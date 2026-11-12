@@ -1,4 +1,21 @@
-
+/* Self-hosted variable fonts. Bricolage Grotesque and Source Sans 3 are SIL OFL 1.1.
+   Licenses: /fonts/bricolage-grotesque-OFL.txt and /fonts/source-sans-3-OFL.txt.
+   Source Sans 3 keeps the reserved name "Source". Neither file is under the MIT license. */
+@font-face{
+  font-family:"Bricolage Grotesque";
+  font-style:normal;
+  font-weight:200 800;
+  font-stretch:75% 100%;
+  font-display:swap;
+  src:url("/fonts/bricolage-grotesque.woff2") format("woff2");
+}
+@font-face{
+  font-family:"Source Sans 3";
+  font-style:normal;
+  font-weight:200 900;
+  font-display:swap;
+  src:url("/fonts/source-sans-3.woff2") format("woff2");
+}
 :root{
   --kin:#C8102E;--kin-dark:#9E0C24;--kin-deep:#7A091C;--kin-soft:#FDF2F4;
   --ink:#1A1A1A;--muted:#4A4A4A;--light:#6B6B6B;

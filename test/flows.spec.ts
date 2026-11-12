@@ -130,6 +130,28 @@ describe("Running of the Balls demo", () => {
     expect(rulesHtml).not.toMatch(/\$\d/);
   });
 
+  it("serves the pages without a Google Fonts request", async () => {
+    for (const path of ["/", "/pick", "/checkout", "/confirmation", "/selections", "/purchase", "/rules", "/admin"]) {
+      const response = await call(path);
+      expect(response.status).toBe(200);
+      const html = await response.text();
+      expect(html).not.toContain("fonts.googleapis.com");
+      expect(html).not.toContain("fonts.gstatic.com");
+      expect(html).toContain("/styles.css");
+    }
+    const css = await call("/styles.css");
+    expect(css.status).toBe(200);
+    const text = await css.text();
+    expect(text).toContain('url("/fonts/bricolage-grotesque.woff2")');
+    expect(text).toContain('url("/fonts/source-sans-3.woff2")');
+    for (const path of ["/fonts/bricolage-grotesque.woff2", "/fonts/source-sans-3.woff2"]) {
+      const font = await call(path);
+      expect(font.status).toBe(200);
+      const bytes = new Uint8Array(await font.arrayBuffer());
+      expect(String.fromCharCode(...bytes.slice(0, 4))).toBe("wOF2");
+    }
+  });
+
   it("lists 2500 balls without buyer emails and shades seeded states", async () => {
     const response = await call("/api/balls");
     const raw = await response.text();
