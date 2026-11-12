@@ -101,8 +101,7 @@ This is what Brian would provide before a hosted demo. It is not done here.
 | `public/admin.html` | Offline demo sales |
 | `migrations/0001_init.sql` | D1 schema |
 | `migrations/0002_seed.sql` | Sample balls, including held, sold, and one offline record |
-| `migrations/0005_catalogue_2500.sql` | Extends the demo catalogue from 1,000 balls to 2,500 |
-| `migrations/0005_receipt_tokens.sql` | Unguessable receipt token on each purchase, including seeded fixtures |
+| `migrations/0005_catalogue_2500.sql` | Extends the demo catalogue from 1,000 balls to 2,500, then adds the receipt token |
 | `.dev.vars.example` | Secret names only. Placeholders are not keys |
 | `THIRD_PARTY_LICENSES.md` | Recorded dependency licenses |
 | `LICENSE` | MIT |
