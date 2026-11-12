@@ -1,5 +1,6 @@
 import { HttpError } from "./http";
 import { liveStripeKeyReason } from "./payments/stripe-test";
+import { parseEmail } from "./validation";
 
 export const DISCLAIMER =
   "Demonstration only. Nothing is charged. This is not a licensed gaming event and it does not sell entries or run a draw.";
@@ -16,8 +17,28 @@ export type AppConfig = {
   resendApiKey: string | undefined;
   stripeSecretKey: string | undefined;
   adminToken: string | undefined;
+  adminEmails: string[];
+  googleClientId: string | undefined;
+  googleClientSecret: string | undefined;
+  sessionSecret: string | undefined;
   paymentsBlockedReason: string | null;
 };
+
+export function parseAdminEmails(value: string | undefined): string[] {
+  const seen = new Set<string>();
+  for (const part of (value ?? "").split(",")) {
+    try {
+      seen.add(parseEmail(part));
+    } catch {
+      // Blank or malformed entries grant nothing. An empty list means no Google admin.
+    }
+  }
+  return [...seen];
+}
+
+export function googleSignInReady(config: AppConfig): boolean {
+  return Boolean(config.googleClientId && config.googleClientSecret && config.sessionSecret);
+}
 
 function blank(value: string | undefined): string | undefined {
   const trimmed = value?.trim() ?? "";
@@ -63,6 +84,10 @@ export function readConfig(env: CloudflareBindings): AppConfig {
     resendApiKey: blank(env.RESEND_API_KEY),
     stripeSecretKey,
     adminToken: blank(env.ADMIN_TOKEN),
+    adminEmails: parseAdminEmails(env.ADMIN_EMAILS),
+    googleClientId: blank(env.GOOGLE_CLIENT_ID),
+    googleClientSecret: blank(env.GOOGLE_CLIENT_SECRET),
+    sessionSecret: blank(env.SESSION_SECRET),
     paymentsBlockedReason: liveStripeKeyReason(stripeSecretKey),
   };
 }

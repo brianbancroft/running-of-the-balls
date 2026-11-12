@@ -14,6 +14,10 @@ interface __BaseEnv_CloudflareBindings {
 	RESEND_API_KEY: string;
 	STRIPE_SECRET_KEY: string;
 	ADMIN_TOKEN: string;
+	ADMIN_EMAILS: string;
+	GOOGLE_CLIENT_ID: string;
+	GOOGLE_CLIENT_SECRET: string;
+	SESSION_SECRET: string;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {
@@ -26,7 +30,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "DEMO_MODE" | "ALLOW_BALL_PICKING" | "EMAIL_DELIVERY" | "PAYMENT_MODE" | "DEMO_AMOUNT_CENTS" | "EMAIL_FROM" | "PUBLIC_APP_NAME" | "RESEND_API_KEY" | "STRIPE_SECRET_KEY" | "ADMIN_TOKEN">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "DEMO_MODE" | "ALLOW_BALL_PICKING" | "EMAIL_DELIVERY" | "PAYMENT_MODE" | "DEMO_AMOUNT_CENTS" | "EMAIL_FROM" | "PUBLIC_APP_NAME" | "RESEND_API_KEY" | "STRIPE_SECRET_KEY" | "ADMIN_TOKEN" | "ADMIN_EMAILS" | "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET" | "SESSION_SECRET">> {}
 }
 declare module "*.txt" {
 	const value: string;

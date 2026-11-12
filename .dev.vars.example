@@ -14,4 +14,23 @@ STRIPE_PUBLISHABLE_KEY=pk_test_placeholder_not_a_real_key
 
 # Set a local-only token to try admin offline sales. Do not reuse it anywhere
 # else, and do not deploy this demo with a guessable token.
+# The API still accepts Authorization: Bearer ADMIN_TOKEN when Google is off.
 ADMIN_TOKEN=
+
+# Comma-separated Google account emails that may open /admin.
+# Whitespace is trimmed. Comparison is case-insensitive.
+# Empty, or only blank entries, means nobody is an admin via Google.
+# Shape only — do not put a real address in git:
+# ADMIN_EMAILS=name@example.com, other@example.com
+ADMIN_EMAILS=
+
+# Google OAuth web client. Leave all three blank and sign-in stays unavailable.
+# The Worker does not crash, and buyers can still purchase with an email.
+# Callback URLs to register on the client, when Brian creates one:
+#   http://localhost:8787/api/auth/google/callback
+#   https://balls.bancroft.io/api/auth/google/callback
+# SESSION_SECRET signs the browser session and the short-lived OAuth state cookie.
+# Use a long random string. Placeholders below are not credentials.
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+SESSION_SECRET=

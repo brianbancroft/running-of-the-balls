@@ -1,6 +1,7 @@
 import { env, createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { readConfig } from "../src/config";
+import { parseAdminEmails, readConfig } from "../src/config";
+import { SESSION_COOKIE, signSession } from "../src/session";
 import { buildSelectionReceipt } from "../src/email/receipt";
 import { planEmailDelivery, sendSelectionReceipt } from "../src/email/deliver";
 import worker from "../src/index";
@@ -18,6 +19,19 @@ function post(path: string, body: unknown, token?: string): Promise<Response> {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (token) headers.authorization = `Bearer ${token}`;
   return call(path, { method: "POST", headers, body: JSON.stringify(body) });
+}
+
+async function callAs(
+  path: string,
+  init: RequestInit | undefined,
+  patch: Partial<CloudflareBindings>,
+): Promise<Response> {
+  const bindings = Object.create(env) as CloudflareBindings;
+  Object.assign(bindings, patch);
+  const ctx = createExecutionContext();
+  const response = await worker.fetch(new Request(`http://example.com${path}`, init), bindings, ctx);
+  await waitOnExecutionContext(ctx);
+  return response;
 }
 
 describe("Running of the Balls demo", () => {
@@ -390,6 +404,181 @@ describe("Running of the Balls demo", () => {
       expect(result.sent).toBe(true);
       expect(result.providerMessageId).toBe("email_test_demo");
       expect(calls.some((url) => url.includes("api.resend.com"))).toBe(true);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("parses admin emails without treating blanks as access", () => {
+    expect(parseAdminEmails("  Club.Admin@Example.com, , other.admin@example.com ")).toEqual([
+      "club.admin@example.com",
+      "other.admin@example.com",
+    ]);
+    expect(parseAdminEmails("")).toEqual([]);
+    expect(parseAdminEmails(undefined)).toEqual([]);
+    expect(parseAdminEmails("not-an-email, ok@example.com")).toEqual(["ok@example.com"]);
+  });
+
+  it("refuses a Google user who is not in ADMIN_EMAILS", async () => {
+    const secret = "test-session-secret";
+    const cookie = await signSession(secret, { email: "Buyer.Google@example.com", name: null });
+    const denied = await callAs(
+      "/api/admin/offline-sales",
+      {
+        method: "POST",
+        headers: {
+          cookie: `${SESSION_COOKIE}=${cookie}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ email: "table.google@example.com", buyerName: "Table", ballId: 940 }),
+      },
+      {
+        ADMIN_EMAILS: "club.admin@example.com",
+        SESSION_SECRET: secret,
+      },
+    );
+    expect(denied.status).toBe(401);
+    const ball = await env.DB.prepare(`SELECT status FROM balls WHERE id = 940`).first<{ status: string }>();
+    expect(ball?.status).toBe("available");
+    const session = await callAs(
+      "/api/auth/session",
+      { headers: { cookie: `${SESSION_COOKIE}=${cookie}` } },
+      { ADMIN_EMAILS: "club.admin@example.com", SESSION_SECRET: secret },
+    );
+    expect(await session.json()).toMatchObject({
+      signedIn: true,
+      email: "buyer.google@example.com",
+      admin: false,
+    });
+  });
+
+  it("allows a Google user whose email is in ADMIN_EMAILS", async () => {
+    const secret = "test-session-secret";
+    const cookie = await signSession(secret, { email: "Club.Admin@Example.com", name: "Club" });
+    const sales = await callAs(
+      "/api/admin/sales",
+      { headers: { cookie: `${SESSION_COOKIE}=${cookie}` } },
+      {
+        ADMIN_EMAILS: "  club.admin@example.com, other.admin@example.com ",
+        SESSION_SECRET: secret,
+      },
+    );
+    expect(sales.status).toBe(200);
+    const session = await callAs(
+      "/api/auth/session",
+      { headers: { cookie: `${SESSION_COOKIE}=${cookie}` } },
+      {
+        ADMIN_EMAILS: "club.admin@example.com",
+        SESSION_SECRET: secret,
+      },
+    );
+    expect(await session.json()).toMatchObject({
+      signedIn: true,
+      email: "club.admin@example.com",
+      admin: true,
+      googleSignIn: false,
+    });
+    const tokenStillWorks = await callAs(
+      "/api/admin/sales",
+      { headers: { authorization: "Bearer test-admin-token" } },
+      { ADMIN_EMAILS: "", SESSION_SECRET: secret },
+    );
+    expect(tokenStillWorks.status).toBe(200);
+  });
+
+  it("grants no Google admin when ADMIN_EMAILS is empty or missing", async () => {
+    const secret = "test-session-secret";
+    const cookie = await signSession(secret, { email: "club.admin@example.com", name: null });
+    for (const emails of ["", "   ", " , , "]) {
+      const response = await callAs(
+        "/api/admin/sales",
+        { headers: { cookie: `${SESSION_COOKIE}=${cookie}` } },
+        { ADMIN_EMAILS: emails, SESSION_SECRET: secret },
+      );
+      expect(response.status).toBe(401);
+    }
+    const missing = await callAs(
+      "/api/admin/sales",
+      { headers: { cookie: `${SESSION_COOKIE}=${cookie}` } },
+      { SESSION_SECRET: secret },
+    );
+    expect(missing.status).toBe(401);
+    const session = await callAs(
+      "/api/auth/session",
+      { headers: { cookie: `${SESSION_COOKIE}=${cookie}` } },
+      { ADMIN_EMAILS: "", SESSION_SECRET: secret },
+    );
+    expect(await session.json()).toMatchObject({ signedIn: true, admin: false });
+  });
+
+  it("lets a buyer purchase without Google and leaves sign-in unavailable", async () => {
+    const bought = await post("/api/purchases", {
+      email: "no.google@example.com",
+      buyerName: "No Google",
+      ballId: 941,
+    });
+    expect(bought.status).toBe(201);
+    const body = await bought.json<{ purchase: { charged: boolean; paymentMode: string } }>();
+    expect(body.purchase.charged).toBe(false);
+    expect(body.purchase.paymentMode).toBe("stripe_test_fake");
+    const session = await call("/api/auth/session");
+    expect(session.status).toBe(200);
+    expect(await session.json()).toMatchObject({ signedIn: false, admin: false, googleSignIn: false });
+    const start = await call("/api/auth/google");
+    expect(start.status).toBe(503);
+    const health = await call("/api/health");
+    expect(health.status).toBe(200);
+  });
+
+  it("starts Google sign-in only when the client is configured", async () => {
+    const secret = "test-session-secret";
+    let fetches = 0;
+    const original = globalThis.fetch;
+    globalThis.fetch = async (...args) => {
+      fetches += 1;
+      return original(...args);
+    };
+    try {
+      const response = await callAs("/api/auth/google?next=https://evil.example", undefined, {
+        GOOGLE_CLIENT_ID: "test-client-id.apps.googleusercontent.com",
+        GOOGLE_CLIENT_SECRET: "test-client-secret-value",
+        SESSION_SECRET: secret,
+        ADMIN_EMAILS: "club.admin@example.com",
+      });
+      expect(response.status).toBe(302);
+      const location = response.headers.get("location") ?? "";
+      expect(location.startsWith("https://accounts.google.com/o/oauth2/v2/auth?")).toBe(true);
+      const redirect = new URL(location);
+      expect(redirect.searchParams.get("client_id")).toBe("test-client-id.apps.googleusercontent.com");
+      expect(redirect.searchParams.get("redirect_uri")).toBe("http://example.com/api/auth/google/callback");
+      expect(location).not.toContain("test-client-secret-value");
+      expect(location).not.toContain("evil.example");
+      expect(location).not.toContain("club.admin@example.com");
+      const setCookie = response.headers.get("set-cookie") ?? "";
+      expect(setCookie.toLowerCase()).toContain("httponly");
+      expect(fetches).toBe(0);
+
+      const failed = await callAs("/api/auth/google/callback?code=nope&state=nope", undefined, {
+        GOOGLE_CLIENT_ID: "test-client-id.apps.googleusercontent.com",
+        GOOGLE_CLIENT_SECRET: "test-client-secret-value",
+        SESSION_SECRET: secret,
+      });
+      expect(failed.status).toBe(302);
+      const back = new URL(failed.headers.get("location") ?? "", "http://example.com");
+      expect(back.pathname).toBe("/admin");
+      expect(back.searchParams.get("auth")).toBe("failed");
+      expect(fetches).toBe(0);
+
+      const config = await callAs("/api/config", undefined, {
+        GOOGLE_CLIENT_ID: "test-client-id.apps.googleusercontent.com",
+        GOOGLE_CLIENT_SECRET: "test-client-secret-value",
+        SESSION_SECRET: secret,
+        ADMIN_EMAILS: "club.admin@example.com",
+      });
+      const text = await config.text();
+      expect(text).toContain('"googleSignIn":true');
+      expect(text).not.toContain("test-client-secret-value");
+      expect(text).not.toContain("club.admin@example.com");
     } finally {
       globalThis.fetch = original;
     }

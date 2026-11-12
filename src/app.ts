@@ -1,8 +1,10 @@
 import { Hono } from "hono";
 import { assertAdmin } from "./auth";
-import { DISCLAIMER, readConfig } from "./config";
+import { DISCLAIMER, googleSignInReady, readConfig } from "./config";
+import { beginGoogleSignIn, clearSession, finishGoogleSignIn } from "./google-auth";
 import { HttpError, isMissingSchema, isRecord } from "./http";
 import { logError, logInfo } from "./log";
+import { readSession } from "./session";
 import {
   cancelHold,
   confirmDemoPurchase,
@@ -60,10 +62,32 @@ app.get("/api/config", (c) => {
     amountCents: config.amountCents,
     currency: config.currency,
     charged: false,
-    offlineSalesConfigured: Boolean(config.adminToken),
+    offlineSalesConfigured: Boolean(config.adminToken) || config.adminEmails.length > 0,
+    googleSignIn: googleSignInReady(config),
     paymentsBlocked: Boolean(config.paymentsBlockedReason),
     disclaimer: DISCLAIMER,
   });
+});
+
+app.get("/api/auth/session", async (c) => {
+  const config = readConfig(c.env);
+  const session = await readSession(config, c.req.header("cookie"));
+  return c.json({
+    signedIn: Boolean(session),
+    email: session?.email ?? null,
+    name: session?.name ?? null,
+    admin: Boolean(session && config.adminEmails.includes(session.email)),
+    googleSignIn: googleSignInReady(config),
+  });
+});
+
+app.get("/api/auth/google", (c) => beginGoogleSignIn(c));
+
+app.get("/api/auth/google/callback", (c) => finishGoogleSignIn(c));
+
+app.post("/api/auth/logout", (c) => {
+  clearSession(c);
+  return c.json({ signedIn: false });
 });
 
 app.get("/api/balls", async (c) => {
@@ -152,7 +176,7 @@ app.get("/api/selections", async (c) => {
 });
 
 app.use("/api/admin/*", async (c, next) => {
-  assertAdmin(readConfig(c.env), c.req.header("authorization"));
+  await assertAdmin(readConfig(c.env), c.req.header("authorization"), c.req.header("cookie"));
   await next();
 });
 

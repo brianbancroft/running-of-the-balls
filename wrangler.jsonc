@@ -37,8 +37,18 @@
   },
   // Names only. Values come from .dev.vars locally or `wrangler secret put`
   // on a real Worker. Missing values warn in local dev and must not be invented here.
+  // ADMIN_EMAILS is a comma-separated list. GOOGLE_* and SESSION_SECRET turn on
+  // Google sign-in. Leave them empty and the Worker keeps the admin-token path.
   "secrets": {
-    "required": ["RESEND_API_KEY", "STRIPE_SECRET_KEY", "ADMIN_TOKEN"]
+    "required": [
+      "RESEND_API_KEY",
+      "STRIPE_SECRET_KEY",
+      "ADMIN_TOKEN",
+      "ADMIN_EMAILS",
+      "GOOGLE_CLIENT_ID",
+      "GOOGLE_CLIENT_SECRET",
+      "SESSION_SECRET"
+    ]
   },
   // database_id is a local placeholder. It does not provision a remote D1
   // database. Replace it with the id from `wrangler d1 create` only when a
