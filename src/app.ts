@@ -151,9 +151,13 @@ app.get("/api/selections", async (c) => {
   return c.json({ email, selections });
 });
 
+app.use("/api/admin/*", async (c, next) => {
+  assertAdmin(readConfig(c.env), c.req.header("authorization"));
+  await next();
+});
+
 app.post("/api/admin/offline-sales", async (c) => {
   const config = readConfig(c.env);
-  assertAdmin(config, c.req.header("authorization"));
   const body = await readJsonObject(c);
   const ballId = parseOptionalBallId(body.ballId);
   if (ballId == null) throw new HttpError(400, "Choose a ball.");
@@ -178,8 +182,6 @@ app.post("/api/admin/offline-sales", async (c) => {
 });
 
 app.get("/api/admin/sales", async (c) => {
-  const config = readConfig(c.env);
-  assertAdmin(config, c.req.header("authorization"));
   const purchases = await listRecentSales(c.env.DB);
   return c.json({ purchases });
 });

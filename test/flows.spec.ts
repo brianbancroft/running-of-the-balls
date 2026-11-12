@@ -287,6 +287,29 @@ describe("Running of the Balls demo", () => {
     expect(owners?.n).toBe(1);
   });
 
+  it("rejects a second purchase of the same ball when both requests arrive together", async () => {
+    const [first, second] = await Promise.all([
+      post("/api/purchases", { email: "race.a@example.com", buyerName: "A", ballId: 880 }),
+      post("/api/purchases", { email: "race.b@example.com", buyerName: "B", ballId: 880 }),
+    ]);
+    expect([first.status, second.status].sort()).toEqual([201, 409]);
+    const rows = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM ball_selections WHERE ball_id = 880`,
+    ).first<{ n: number }>();
+    expect(rows?.n).toBe(1);
+  });
+
+  it("requires the admin token on every admin route", async () => {
+    const sales = await call("/api/admin/sales");
+    expect(sales.status).toBe(401);
+    const bad = await call("/api/admin/sales", {
+      headers: { authorization: "Bearer wrong-token" },
+    });
+    expect(bad.status).toBe(401);
+    const email = await post("/api/purchases", { email: "not-an-email", ballId: 881 });
+    expect(email.status).toBe(400);
+  });
+
   it("honors the pick-a-ball switch on the purchase engine", async () => {
     const config = readConfig(env);
     await expect(
