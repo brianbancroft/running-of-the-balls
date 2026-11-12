@@ -40,8 +40,20 @@ async function send<T>(url: string, init?: RequestInit): Promise<T> {
   return payload;
 }
 
+export type Session = {
+  signedIn: boolean;
+  email: string | null;
+  name: string | null;
+  admin: boolean;
+  googleSignIn: boolean;
+};
+
 export function getConfig(): Promise<Config> {
   return send<Config>("/api/config");
+}
+
+export function getSession(): Promise<Session> {
+  return send<Session>("/api/auth/session");
 }
 
 export function getBalls(): Promise<Ball[]> {
@@ -63,13 +75,15 @@ export function offlineSale(
   body: { email: string; buyerName: string; ballId: number; note: string },
   token: string,
 ): Promise<{ purchase: Purchase; email: { sent: boolean } }> {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    accept: "application/json",
+  };
+  if (token.trim()) headers.authorization = `Bearer ${token}`;
   return send("/api/admin/offline-sales", {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      accept: "application/json",
-      authorization: `Bearer ${token}`,
-    },
+    credentials: "same-origin",
+    headers,
     body: JSON.stringify(body),
   });
 }

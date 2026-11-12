@@ -8,6 +8,9 @@ async function send(url, init) {
 export function getConfig() {
     return send("/api/config");
 }
+export function getSession() {
+    return send("/api/auth/session");
+}
 export function getBalls() {
     return send("/api/balls").then((payload) => payload.balls);
 }
@@ -19,13 +22,16 @@ export function buyBall(body) {
     });
 }
 export function offlineSale(body, token) {
+    const headers = {
+        "content-type": "application/json",
+        accept: "application/json",
+    };
+    if (token.trim())
+        headers.authorization = `Bearer ${token}`;
     return send("/api/admin/offline-sales", {
         method: "POST",
-        headers: {
-            "content-type": "application/json",
-            accept: "application/json",
-            authorization: `Bearer ${token}`,
-        },
+        credentials: "same-origin",
+        headers,
         body: JSON.stringify(body),
     });
 }

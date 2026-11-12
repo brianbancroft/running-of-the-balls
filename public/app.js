@@ -1,4 +1,4 @@
-import { buyBall, getBalls, getConfig, offlineSale, purchasesFor, selectionsFor, } from "./api.js";
+import { buyBall, getBalls, getConfig, getSession, offlineSale, purchasesFor, selectionsFor, } from "./api.js";
 import { ballColour, ballNumber, money } from "./format.js";
 import { readBuyer, readPaused, readPicks, readQty, readReceipt, writeBuyer, writePaused, writePicks, writeQty, writeReceipt, fieldSeed, } from "./store.js";
 function inventoryOf(balls) {
@@ -132,11 +132,11 @@ async function boot() {
     if (page === "confirmation")
         initConfirmation(config);
     if (page === "purchase")
-        initPurchase();
+        await initPurchase();
     if (page === "selections")
         initSelections();
     if (page === "admin")
-        initAdmin(balls);
+        await initAdmin(balls);
 }
 function tuneChrome(config, soldOut) {
     for (const node of document.querySelectorAll("[data-needs='pick']")) {
@@ -865,13 +865,47 @@ function initConfirmation(config) {
     links.append(purchases, " · ", records);
     host.append(eye, title, lede, big, actions, table, next, links);
 }
-function initPurchase() {
+function authMessage(code) {
+    if (code === "failed")
+        return " Google sign-in did not finish.";
+    if (code === "unavailable")
+        return " Google sign-in is unavailable right now.";
+    if (code === "unverified")
+        return " That Google account has no verified email.";
+    return "";
+}
+async function readSession() {
+    try {
+        return await getSession();
+    }
+    catch {
+        return null;
+    }
+}
+async function initPurchase() {
     const form = document.querySelector("#lookup");
     const results = document.querySelector("#results");
     if (!(form instanceof HTMLFormElement) || !(results instanceof HTMLElement))
         return;
     const input = form.querySelector("input");
-    const preset = new URLSearchParams(location.search).get("email") ?? "";
+    const account = document.querySelector("#google-account");
+    const session = await readSession();
+    const queryEmail = new URLSearchParams(location.search).get("email") ?? "";
+    let preset = queryEmail;
+    if (account instanceof HTMLElement && session?.googleSignIn && session.signedIn && session.email) {
+        account.hidden = false;
+        account.textContent = `Signed in with Google as ${session.email}. Purchases below match that address. Looking up another email does not need Google.`;
+        if (!queryEmail)
+            preset = session.email;
+    }
+    else if (account instanceof HTMLElement && session?.googleSignIn) {
+        account.hidden = false;
+        account.replaceChildren("Google sign-in is optional. ");
+        const link = document.createElement("a");
+        link.href = "/api/auth/google?next=/purchase";
+        link.textContent = "Sign in";
+        account.append(link, " to open purchases for that address, or look up any email below.");
+    }
     if (input instanceof HTMLInputElement)
         input.value = preset;
     const show = async (email) => {
@@ -955,12 +989,66 @@ function initSelections() {
     if (preset)
         void show(preset);
 }
-function initAdmin(balls) {
+async function initAdmin(balls) {
     const form = document.querySelector("#admin-form");
     const note = document.querySelector("#admin-status");
     const pick = document.querySelector("#admin-ball");
+    const gate = document.querySelector("#admin-gate");
+    const gateCopy = document.querySelector("#admin-gate-copy");
+    const google = document.querySelector("#admin-google");
+    const signOut = document.querySelector("#admin-signout");
+    const tokenFallback = document.querySelector("#admin-token-fallback");
     if (!(form instanceof HTMLFormElement) || !(note instanceof HTMLElement) || !(pick instanceof HTMLInputElement))
         return;
+    if (!(gate instanceof HTMLElement) || !(gateCopy instanceof HTMLElement))
+        return;
+    if (!(google instanceof HTMLAnchorElement) || !(signOut instanceof HTMLButtonElement))
+        return;
+    if (!(tokenFallback instanceof HTMLDetailsElement))
+        return;
+    const tokenInput = form.querySelector("input[name='token']");
+    if (!(tokenInput instanceof HTMLInputElement))
+        return;
+    const session = await readSession();
+    const notice = authMessage(new URLSearchParams(location.search).get("auth"));
+    gate.hidden = false;
+    signOut.addEventListener("click", () => {
+        void fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).then(() => {
+            location.href = "/admin";
+        });
+    });
+    const summary = tokenFallback.querySelector("summary");
+    if (!session?.googleSignIn) {
+        gateCopy.textContent = `Google sign-in is not set up, so this page still accepts an admin token.${notice}`;
+        google.hidden = true;
+        signOut.hidden = true;
+        tokenFallback.hidden = false;
+        tokenFallback.open = true;
+        tokenInput.required = true;
+        if (summary)
+            summary.textContent = "Admin token";
+    }
+    else if (!session.signedIn) {
+        gateCopy.textContent = `Sign in with Google to record an offline sale. A token still works if you have one.${notice}`;
+        google.hidden = false;
+        signOut.hidden = true;
+        tokenInput.required = true;
+    }
+    else if (!session.admin) {
+        gateCopy.textContent = `Signed in as ${session.email}. This Google account is not an admin.`;
+        google.hidden = true;
+        signOut.hidden = false;
+        form.hidden = true;
+        return;
+    }
+    else {
+        gateCopy.textContent = `Signed in as ${session.email}. This account can record offline demo sales.`;
+        google.hidden = true;
+        signOut.hidden = false;
+        tokenFallback.hidden = true;
+        tokenInput.required = false;
+        tokenInput.value = "";
+    }
     const describe = () => {
         const n = Number(pick.value);
         const ball = balls.get(n);

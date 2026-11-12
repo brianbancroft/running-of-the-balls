@@ -329,7 +329,10 @@ button.ball{appearance:none;color:inherit}
 .grid .ball{--s:64px}
 .grid{position:relative}
 .line.taken .nm,.line.taken .amt{text-decoration:line-through;color:var(--light)}
-.admin-form{display:grid;gap:14px}
+[hidden]{display:none !important}
+.admin-form{display:grid;gap:14px;max-width:520px;margin-top:24px;padding:28px}
+.admin-gate{display:grid;gap:14px;max-width:520px;margin-top:24px;padding:28px}
+.admin-form summary{font-weight:700;cursor:pointer}
 .admin-form input,.admin-form textarea{width:100%;font:inherit;border:1.5px solid #D5CDC5;border-radius:12px;padding:12px 14px;background:#fff}
 @media (max-width:800px){
   .site-head{height:auto;flex-wrap:wrap;padding:12px 16px;gap:12px}
