@@ -32,6 +32,7 @@ export type PurchaseRecord = {
   buyerName: string | null;
   selectionId: string;
   ball: Ball;
+  emailRecord: StoredEmail | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -46,7 +47,16 @@ export type SelectionRecord = {
   ballStatus: BallStatus;
   purchaseId: string;
   purchaseStatus: PurchaseStatus;
+  emailRecord: StoredEmail | null;
   createdAt: string;
+};
+
+export type StoredEmail = {
+  id: string;
+  subject: string;
+  status: "previewed" | "sent" | "failed";
+  sent: boolean;
+  mode: "dry_run" | "resend";
 };
 
 type BallRow = {
@@ -77,6 +87,10 @@ type JoinedRow = {
   label: string;
   color: string;
   ball_status: BallStatus;
+  email_id: string | null;
+  email_subject: string | null;
+  email_status: "previewed" | "sent" | "failed" | null;
+  email_mode: "dry_run" | "resend" | null;
 };
 
 type DispatchRow = {
@@ -108,7 +122,31 @@ const JOINED = `
     b.ball_number,
     b.label,
     b.color,
-    b.status AS ball_status
+    b.status AS ball_status,
+    (
+      SELECT d.id FROM email_dispatches d
+      WHERE d.selection_id = s.id
+      ORDER BY d.created_at DESC
+      LIMIT 1
+    ) AS email_id,
+    (
+      SELECT d.subject FROM email_dispatches d
+      WHERE d.selection_id = s.id
+      ORDER BY d.created_at DESC
+      LIMIT 1
+    ) AS email_subject,
+    (
+      SELECT d.status FROM email_dispatches d
+      WHERE d.selection_id = s.id
+      ORDER BY d.created_at DESC
+      LIMIT 1
+    ) AS email_status,
+    (
+      SELECT d.mode FROM email_dispatches d
+      WHERE d.selection_id = s.id
+      ORDER BY d.created_at DESC
+      LIMIT 1
+    ) AS email_mode
   FROM purchases p
   JOIN ball_selections s ON s.purchase_id = p.id
   JOIN balls b ON b.id = s.ball_id
@@ -125,6 +163,17 @@ function mapBall(row: BallRow): Ball {
     label: row.label,
     color: row.color,
     status: row.status,
+  };
+}
+
+function emailFromRow(row: JoinedRow): StoredEmail | null {
+  if (!row.email_id || !row.email_status || !row.email_mode) return null;
+  return {
+    id: row.email_id,
+    subject: row.email_subject ?? "",
+    status: row.email_status,
+    sent: row.email_status === "sent",
+    mode: row.email_mode,
   };
 }
 
@@ -152,6 +201,7 @@ export function toPurchase(row: JoinedRow): PurchaseRecord {
     buyerName: row.buyer_name,
     selectionId: row.selection_id,
     ball: ballFromJoined(row),
+    emailRecord: emailFromRow(row),
     createdAt: row.purchase_created_at,
     updatedAt: row.purchase_updated_at,
   };
@@ -168,6 +218,7 @@ export function toSelection(row: JoinedRow): SelectionRecord {
     ballStatus: row.ball_status,
     purchaseId: row.purchase_id,
     purchaseStatus: row.purchase_status,
+    emailRecord: emailFromRow(row),
     createdAt: row.selection_created_at,
   };
 }
@@ -495,17 +546,21 @@ export async function confirmDemoPurchase(
     db
       .prepare(
         `INSERT INTO email_dispatches (
-           id, purchase_id, selection_id, to_email, mode, status,
-           idempotency_key, provider_message_id, error, created_at
+           id, purchase_id, selection_id, ball_id, to_email, subject, text_body, html_body,
+           mode, status, idempotency_key, provider_message_id, error, created_at
          )
-         SELECT ?, ?, ?, ?, ?, 'previewed', ?, NULL, NULL, ?
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 'previewed', ?, NULL, NULL, ?
          WHERE changes() = 1`,
       )
       .bind(
         dispatchId,
         purchaseId,
         current.selection_id,
+        current.ball_id,
         email,
+        receipt.subject,
+        receipt.text,
+        receipt.html,
         plan.mode,
         receipt.idempotencyKey,
         now,
@@ -581,6 +636,173 @@ export async function cancelHold(
   return toPurchase(saved);
 }
 
+async function writeLockedSale(
+  db: D1Database,
+  input: {
+    ballId: number;
+    email: string;
+    buyerName: string | null;
+    paymentMode: PaymentMode;
+    stripeTestReference: string | null;
+    offlineNote: string | null;
+    amountCents: number;
+    purchaseId: string;
+    selectionId: string;
+    receipt: ReturnType<typeof buildSelectionReceipt>;
+    dispatchMode: "dry_run" | "resend";
+  },
+): Promise<void> {
+  const now = new Date().toISOString();
+  const dispatchId = crypto.randomUUID();
+  const results = await db.batch([
+    db
+      .prepare(`UPDATE balls SET status = 'sold' WHERE id = ? AND status = 'available'`)
+      .bind(input.ballId),
+    db
+      .prepare(
+        `INSERT INTO purchases (
+           id, buyer_email, buyer_name, status, payment_mode,
+           stripe_test_reference, offline_note, amount_cents, currency, demo_only,
+           created_at, updated_at
+         )
+         SELECT ?, ?, ?, 'demo_confirmed', ?, ?, ?, ?, 'CAD', 1, ?, ?
+         WHERE changes() = 1`,
+      )
+      .bind(
+        input.purchaseId,
+        input.email,
+        input.buyerName,
+        input.paymentMode,
+        input.stripeTestReference,
+        input.offlineNote,
+        input.amountCents,
+        now,
+        now,
+      ),
+    db
+      .prepare(
+        `INSERT INTO ball_selections (id, ball_id, email, purchase_id, created_at)
+         SELECT ?, ?, ?, ?, ?
+         WHERE changes() = 1`,
+      )
+      .bind(input.selectionId, input.ballId, input.email, input.purchaseId, now),
+    db
+      .prepare(
+        `INSERT INTO email_dispatches (
+           id, purchase_id, selection_id, ball_id, to_email, subject, text_body, html_body,
+           mode, status, idempotency_key, provider_message_id, error, created_at
+         )
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 'previewed', ?, NULL, NULL, ?
+         WHERE changes() = 1`,
+      )
+      .bind(
+        dispatchId,
+        input.purchaseId,
+        input.selectionId,
+        input.ballId,
+        input.email,
+        input.receipt.subject,
+        input.receipt.text,
+        input.receipt.html,
+        input.dispatchMode,
+        input.receipt.idempotencyKey,
+        now,
+      ),
+  ]);
+  const ballUpdate = results[0];
+  const purchaseInsert = results[1];
+  const selectionInsert = results[2];
+  const dispatchInsert = results[3];
+  if (!ballUpdate || !purchaseInsert || !selectionInsert || !dispatchInsert) {
+    throw new HttpError(500, "Could not record the purchase.");
+  }
+  if (changed(ballUpdate) !== 1) {
+    throw new HttpError(409, "That ball is already held or recorded.");
+  }
+  if (
+    changed(purchaseInsert) !== 1 ||
+    changed(selectionInsert) !== 1 ||
+    changed(dispatchInsert) !== 1
+  ) {
+    await db
+      .prepare(`UPDATE balls SET status = 'available' WHERE id = ? AND status = 'sold'`)
+      .bind(input.ballId)
+      .run();
+    logError({ message: "purchase rolled back after a partial write", ballId: input.ballId });
+    throw new HttpError(500, "Could not record the purchase.");
+  }
+}
+
+export async function purchaseBall(
+  db: D1Database,
+  input: { email: string; buyerName: string | null; ballId: number | undefined },
+  config: AppConfig,
+): Promise<ConfirmedPurchase> {
+  assertPaymentsAllowed(config);
+  const attempts = config.allowBallPicking ? 1 : 3;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const ballId = await chooseBall(db, input.ballId, config);
+    const ball = await getBall(db, ballId);
+    if (!ball || ball.status !== "available") {
+      if (config.allowBallPicking) {
+        throw new HttpError(409, "That ball is already held or recorded.");
+      }
+      continue;
+    }
+    const purchaseId = crypto.randomUUID();
+    const selectionId = crypto.randomUUID();
+    let payment;
+    try {
+      payment = buildDemoPayment({
+        paymentMode: config.paymentMode,
+        stripeSecretKey: config.stripeSecretKey,
+        purchaseId,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Payment refused.";
+      throw new HttpError(403, message);
+    }
+    const plan = planEmailDelivery({
+      delivery: config.emailDelivery,
+      apiKey: config.resendApiKey,
+    });
+    const receipt = buildSelectionReceipt({
+      to: input.email,
+      from: config.emailFrom,
+      buyerName: input.buyerName,
+      ballNumber: ball.ballNumber,
+      ballLabel: ball.label,
+      purchaseId,
+      selectionId,
+      reference: payment.stripeTestReference,
+      amountCents: config.amountCents,
+      kind: "online_demo",
+    });
+    try {
+      await writeLockedSale(db, {
+        ballId,
+        email: input.email,
+        buyerName: input.buyerName,
+        paymentMode: "stripe_test_fake",
+        stripeTestReference: payment.stripeTestReference,
+        offlineNote: null,
+        amountCents: config.amountCents,
+        purchaseId,
+        selectionId,
+        receipt,
+        dispatchMode: plan.mode,
+      });
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 409 && !config.allowBallPicking) continue;
+      throw error;
+    }
+    const saved = await loadPurchase(db, purchaseId);
+    if (!saved) throw new HttpError(500, "Could not record the purchase.");
+    return { purchase: toPurchase(saved), email: await finishEmail(db, saved, config) };
+  }
+  throw new HttpError(409, "Every ball is already held or recorded.");
+}
+
 export async function recordOfflineSale(
   db: D1Database,
   input: { email: string; buyerName: string | null; ballId: number; note: string },
@@ -596,8 +818,6 @@ export async function recordOfflineSale(
 
   const purchaseId = crypto.randomUUID();
   const selectionId = crypto.randomUUID();
-  const dispatchId = crypto.randomUUID();
-  const now = new Date().toISOString();
   const plan = planEmailDelivery({
     delivery: config.emailDelivery,
     apiKey: config.resendApiKey,
@@ -614,69 +834,19 @@ export async function recordOfflineSale(
     amountCents: config.amountCents,
     kind: "offline_demo",
   });
-  const results = await db.batch([
-    db
-      .prepare(`UPDATE balls SET status = 'sold' WHERE id = ? AND status = 'available'`)
-      .bind(input.ballId),
-    db
-      .prepare(
-        `INSERT INTO purchases (
-           id, buyer_email, buyer_name, status, payment_mode,
-           stripe_test_reference, offline_note, amount_cents, currency, demo_only,
-           created_at, updated_at
-         )
-         SELECT ?, ?, ?, 'demo_confirmed', 'offline_demo', NULL, ?, ?, 'CAD', 1, ?, ?
-         WHERE changes() = 1`,
-      )
-      .bind(purchaseId, input.email, input.buyerName, input.note, config.amountCents, now, now),
-    db
-      .prepare(
-        `INSERT INTO ball_selections (id, ball_id, email, purchase_id, created_at)
-         SELECT ?, ?, ?, ?, ?
-         WHERE changes() = 1`,
-      )
-      .bind(selectionId, input.ballId, input.email, purchaseId, now),
-    db
-      .prepare(
-        `INSERT INTO email_dispatches (
-           id, purchase_id, selection_id, to_email, mode, status,
-           idempotency_key, provider_message_id, error, created_at
-         )
-         SELECT ?, ?, ?, ?, ?, 'previewed', ?, NULL, NULL, ?
-         WHERE changes() = 1`,
-      )
-      .bind(
-        dispatchId,
-        purchaseId,
-        selectionId,
-        input.email,
-        plan.mode,
-        receipt.idempotencyKey,
-        now,
-      ),
-  ]);
-  const ballUpdate = results[0];
-  const purchaseInsert = results[1];
-  const selectionInsert = results[2];
-  const dispatchInsert = results[3];
-  if (!ballUpdate || !purchaseInsert || !selectionInsert || !dispatchInsert) {
-    throw new HttpError(500, "Could not record the offline demo sale.");
-  }
-  if (changed(ballUpdate) !== 1) {
-    throw new HttpError(409, "That ball is already held or recorded.");
-  }
-  if (
-    changed(purchaseInsert) !== 1 ||
-    changed(selectionInsert) !== 1 ||
-    changed(dispatchInsert) !== 1
-  ) {
-    await db
-      .prepare(`UPDATE balls SET status = 'available' WHERE id = ? AND status = 'sold'`)
-      .bind(input.ballId)
-      .run();
-    logError({ message: "offline sale rolled back after a partial write", ballId: input.ballId });
-    throw new HttpError(500, "Could not record the offline demo sale.");
-  }
+  await writeLockedSale(db, {
+    ballId: input.ballId,
+    email: input.email,
+    buyerName: input.buyerName,
+    paymentMode: "offline_demo",
+    stripeTestReference: null,
+    offlineNote: input.note,
+    amountCents: config.amountCents,
+    purchaseId,
+    selectionId,
+    receipt,
+    dispatchMode: plan.mode,
+  });
   const saved = await loadPurchase(db, purchaseId);
   if (!saved) throw new HttpError(500, "Could not record the offline demo sale.");
   return { purchase: toPurchase(saved), email: await finishEmail(db, saved, config) };

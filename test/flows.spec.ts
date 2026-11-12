@@ -53,6 +53,68 @@ describe("Running of the Balls demo", () => {
     expect(body.balls.find((ball) => ball.ballNumber === 1)?.status).toBe("available");
   });
 
+  it("buys a specific ball once, locks it, and stores the receipt without sending", async () => {
+    const bought = await post("/api/purchases", {
+      email: "Buyer.Buy@example.com",
+      buyerName: "Ada",
+      ballId: 9,
+    });
+    expect(bought.status).toBe(201);
+    const body = await bought.json<{
+      purchase: {
+        status: string;
+        charged: boolean;
+        paymentMode: string;
+        stripeTestReference: string;
+        buyerEmail: string;
+        ball: { id: number; status: string };
+        emailRecord: { subject: string; sent: boolean; mode: string } | null;
+      };
+      email: { sent: boolean; mode: string; preview: { text: string } };
+    }>();
+    expect(body.purchase.status).toBe("demo_confirmed");
+    expect(body.purchase.charged).toBe(false);
+    expect(body.purchase.paymentMode).toBe("stripe_test_fake");
+    expect(body.purchase.stripeTestReference.startsWith("cs_test_fake_")).toBe(true);
+    expect(body.purchase.ball.status).toBe("sold");
+    expect(body.purchase.buyerEmail).toBe("buyer.buy@example.com");
+    expect(body.email.sent).toBe(false);
+    expect(body.email.mode).toBe("dry_run");
+    expect(body.email.preview.text.toLowerCase()).toContain("no payment was taken");
+    expect(body.purchase.emailRecord?.sent).toBe(false);
+    expect(body.purchase.emailRecord?.subject).toContain("ball 9");
+
+    const stored = await env.DB.prepare(
+      `SELECT ball_id, to_email, subject, text_body, status, mode
+       FROM email_dispatches
+       WHERE to_email = ?`,
+    )
+      .bind("buyer.buy@example.com")
+      .first<{
+        ball_id: number;
+        to_email: string;
+        subject: string;
+        text_body: string;
+        status: string;
+        mode: string;
+      }>();
+    expect(stored?.ball_id).toBe(9);
+    expect(stored?.subject).toContain("ball 9");
+    expect(stored?.text_body.toLowerCase()).toContain("no payment was taken");
+    expect(stored?.status).toBe("previewed");
+    expect(stored?.mode).toBe("dry_run");
+
+    const again = await post("/api/purchases", {
+      email: "second.buy@example.com",
+      ballId: 9,
+    });
+    expect(again.status).toBe(409);
+    const count = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM ball_selections WHERE ball_id = 9`,
+    ).first<{ n: number }>();
+    expect(count?.n).toBe(1);
+  });
+
   it("runs the purchase engine through hold, confirm, and a dry-run receipt", async () => {
     const held = await post("/api/selections", {
       email: "Buyer.One@example.com",

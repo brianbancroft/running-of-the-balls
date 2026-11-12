@@ -11,6 +11,7 @@ import {
   listPurchasesForEmail,
   listRecentSales,
   listSelectionsForEmail,
+  purchaseBall,
   recordOfflineSale,
 } from "./purchase-engine";
 import { parseEmail, parseName, parseNote, parseOptionalBallId, parsePurchaseId } from "./validation";
@@ -89,6 +90,28 @@ app.post("/api/selections", async (c) => {
     charged: false,
   });
   return c.json({ purchase }, 201);
+});
+
+app.post("/api/purchases", async (c) => {
+  const config = readConfig(c.env);
+  const body = await readJsonObject(c);
+  const result = await purchaseBall(
+    c.env.DB,
+    {
+      email: parseEmail(body.email),
+      buyerName: parseName(body.buyerName),
+      ballId: parseOptionalBallId(body.ballId),
+    },
+    config,
+  );
+  logInfo({
+    message: "demo ball purchased",
+    purchaseId: result.purchase.id,
+    ballId: result.purchase.ball.id,
+    charged: false,
+    emailSent: result.email.sent,
+  });
+  return c.json(result, 201);
 });
 
 app.post("/api/purchases/:id/confirm-demo", async (c) => {
