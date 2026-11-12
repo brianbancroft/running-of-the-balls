@@ -1,37 +1,32 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-CA">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Running of the Balls — email and ball</title>
-  <meta name="description" content="Records that tie a buyer email to the ball they selected. Demonstration only.">
+  <title>Email and ball · Running of the Balls</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,800&family=Source+Sans+3:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
 </head>
-<body data-view="selections">
-  <a class="skip" href="#lookup">Skip to the email lookup</a>
-  <p class="demo-banner">Demonstration only. Nothing is charged. This is not a licensed gaming event.</p>
-  <div class="sky" id="marquee" aria-hidden="true"></div>
-  <div class="shell">
-    <nav class="nav" aria-label="Demo flows">
-      <a href="/">Purchase</a>
-      <a href="/purchase">Your purchases</a>
-      <a href="/selections" aria-current="page">Email and ball</a>
-      <a href="/admin">Offline sales</a>
-    </nav>
-    <header class="masthead">
-      <p class="kicker">Email and ball records</p>
-      <h1>Which ball this email selected</h1>
-      <p class="lede">Each row is the stored link between an email address and one ball. Cancelled holds stay here. No other addresses are listed.</p>
-    </header>
-    <main class="card" id="lookup" style="margin-top:1rem">
-      <div id="panel"></div>
-      <div id="results" class="records"></div>
-    </main>
-    <footer class="site-footer">
-      <p>These records are the demo’s buyer-to-ball list. They are not tickets and they are not draw entries.</p>
-    </footer>
-  </div>
+<body data-page="selections">
+  <div class="ribbon"><span class="pill">Demo</span> Payments run in Stripe test mode — no real charges.</div>
+  <header class="site-head">
+    <a class="wordmark" href="/"><span class="k">Ladysmith Kinsmen</span><span class="n">Running of <em>the Balls</em></span></a>
+    <nav><a href="/purchase">Your purchases</a><a href="/admin">Offline sales</a></nav>
+  </header>
+  <main class="section">
+    <div class="eyebrow">Email and ball records</div>
+    <h1 class="display" style="font-size:54px;margin:8px 0 12px">Which ball this email selected</h1>
+    <p class="lede">Each row is the stored link between an email and a ball, plus the receipt kept beside it. Cancelled holds stay here. Nothing is sent while email is in dry run.</p>
+    <form id="lookup" class="fld" style="max-width:420px;margin-top:22px">
+      <label for="email">Email</label>
+      <input class="in" id="email" type="email" required>
+      <button class="btn red" type="submit" style="margin-top:12px">Look up</button>
+    </form>
+    <div id="results" class="steps" style="margin-top:28px"></div>
+  </main>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

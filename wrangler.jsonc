@@ -31,7 +31,7 @@
     "ALLOW_BALL_PICKING": "true",
     "EMAIL_DELIVERY": "dry_run",
     "PAYMENT_MODE": "stripe_test_fake",
-    "DEMO_AMOUNT_CENTS": "2000",
+    "DEMO_AMOUNT_CENTS": "500",
     "EMAIL_FROM": "Running of the Balls Demo <onboarding@resend.dev>",
     "PUBLIC_APP_NAME": "Ladysmith Kinsmen Running of the Balls"
   },

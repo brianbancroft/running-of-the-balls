@@ -1,48 +1,135 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-CA">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Running of the Balls — purchase demo</title>
-  <meta name="description" content="Demonstration purchase board for the Ladysmith Kinsmen Running of the Balls. No real charges. Not a licensed gaming event.">
+  <title>Running of the Balls</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,800&family=Source+Sans+3:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
 </head>
-<body data-view="board">
-  <a class="skip" href="#board">Skip to the ball board</a>
-  <p class="demo-banner">Demonstration only. Nothing is charged. This is not a licensed gaming event.</p>
-  <div class="sky" id="marquee" aria-hidden="true"></div>
-  <div class="shell">
-    <nav class="nav" aria-label="Demo flows">
-      <a href="/" aria-current="page">Purchase</a>
-      <a href="/purchase">Your purchases</a>
-      <a href="/selections">Email and ball</a>
-      <a href="/admin">Offline sales</a>
+<body data-page="home">
+  <div id="live" class="sr-only" aria-live="polite"></div>
+  <div class="ribbon"><span class="pill">Demo</span> Payments run in Stripe test mode — no real charges. Prices, ball counts and prizes shown are placeholders.</div>
+  <header class="site-head">
+    <!-- Logo slot: official Kin Canada / Kinsmen marks are withheld until permission is confirmed. -->
+    <a class="wordmark" href="/"><span class="k">Ladysmith Kinsmen</span><span class="n">Running of <em>the Balls</em></span></a>
+    <nav>
+      <a href="#how">How it works</a>
+      <a href="#prizes">Prizes</a>
+      <a href="/pick" data-needs="pick">Pick a ball</a>
     </nav>
-    <header class="masthead">
-      <p class="kicker">Ladysmith Kinsmen</p>
-      <h1>Running of the Balls</h1>
-      <p class="lede">Choose a numbered ball and buy it in this demonstration. The ball locks so it cannot be bought twice. No draw is run and no payment is taken.</p>
-    </header>
-    <main class="layout with-panel">
-      <section class="card" aria-labelledby="board-title">
-        <div class="section-head">
-          <h2 id="board-title">Ball board</h2>
-          <p id="counts"></p>
+    <a class="btn red sm" data-get-ball href="/pick">Get a ball</a>
+  </header>
+  <section class="hero">
+    <div class="field" id="field">
+      <div class="tilt" id="tilt"></div>
+      <button class="motion" id="motion" type="button">Pause motion</button>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="card" id="card-open">
+      <div class="eyebrow">The Ladysmith Kinsmen present</div>
+      <h1>Running of <em>the Balls</em></h1>
+      <p class="lede">A thousand colourful balls, one steep street. Get a numbered ball, then watch it race down High Street — the first balls to the bottom win cash prizes.</p>
+      <div class="meta">
+        <span class="chip"><i class="dot"></i>High Street, Ladysmith, BC</span>
+        <span class="chip">Race day: date TBA</span>
+        <span class="chip"><span id="unit-price">Price</span> <span class="ph">Placeholder</span></span>
+      </div>
+      <div id="pick-controls">
+        <div class="ctas">
+          <a class="btn red" href="/pick">Pick your ball</a>
+          <a class="btn ghost" href="#how">How it works</a>
         </div>
-        <div id="board" class="board"></div>
-      </section>
-      <aside class="card panel" aria-live="polite">
-        <h2>Purchase</h2>
-        <div id="panel"><p>Loading the ball board…</p></div>
-      </aside>
-    </main>
-    <footer class="site-footer">
-      <p>Held and sold balls are shaded. Sold means a demo record, not money collected by this app.</p>
-      <p>A live Kinsmen event needs the appropriate British Columbia charitable gaming licence before any real money is taken. This page is not that licence and it is not legal advice.</p>
-    </footer>
-  </div>
-  <noscript><p class="demo-banner">This demonstration board needs JavaScript to load ball status.</p></noscript>
+      </div>
+      <div id="qty-controls" hidden>
+        <div class="qty">
+          <div class="stepper">
+            <button type="button" id="qty-dec" aria-label="Fewer balls">−</button>
+            <output id="qty">1</output>
+            <button type="button" id="qty-inc" aria-label="More balls">+</button>
+          </div>
+          <div class="sum"><span id="qty-label">Balls</span><strong id="qty-sum"></strong> <span class="ph">Placeholder price</span></div>
+        </div>
+        <div class="ctas">
+          <a class="btn red" id="qty-cta" href="/checkout">Get a ball</a>
+          <a class="btn ghost" href="#how">How it works</a>
+        </div>
+        <div class="note" style="margin-top:16px"><span class="ic">i</span><p>Numbers are handed out for you this time. You'll get the next free balls and see your numbers right after checkout. <span class="ph">Wording proposed</span></p></div>
+      </div>
+      <div class="stock" id="stock-line"></div>
+      <div class="bar"><i id="stock-bar" style="width:0"></i></div>
+    </div>
+    <div class="card" id="card-soldout" hidden>
+      <div class="eyebrow">Sold out · thank you, Ladysmith</div>
+      <h1>Every ball has a home.</h1>
+      <p class="lede">All the balls in this demo have found an owner. See you on High Street on race day to watch them roll.</p>
+      <div class="meta">
+        <span class="chip"><i class="dot"></i>High Street, Ladysmith, BC</span>
+        <span class="chip">Race day: date TBA</span>
+      </div>
+      <div class="ctas">
+        <a class="btn ghost" href="#how">How race day works</a>
+        <a class="btn link" href="#prizes">Prizes &amp; rules</a>
+      </div>
+      <div class="stock">Every ball is shaded. <span class="ph">Placeholder count</span></div>
+      <div class="bar"><i style="width:100%"></i></div>
+    </div>
+    <div class="tray" id="tray" hidden></div>
+  </section>
+  <section class="section" id="how">
+    <div class="eyebrow">How it works</div>
+    <h2 style="margin-top:12px">Buy a ball. Watch it roll.</h2>
+    <div class="steps">
+      <div class="step"><h3>Get your ball</h3><p>Every ball has its own number. Pick a favourite number, or let us hand you the next one.</p></div>
+      <div class="step"><h3>Race day on High Street</h3><p>All the balls are let go at the top of High Street and tumble down the hill together.</p></div>
+      <div class="step"><h3>First to the bottom wins</h3><p>The first balls across the line win cash prizes. Every ball helps the Ladysmith Kinsmen help the town.</p></div>
+    </div>
+  </section>
+  <section class="section" id="prizes" style="padding-top:0">
+    <div class="prizes">
+      <div>
+        <div class="eyebrow" style="color:#FFD3DA">Prizes</div>
+        <h2 style="margin-top:12px">Cash for the first three balls down the hill.</h2>
+        <p>These amounts are from past years and are shown for flavour only. This year’s prizes will be posted before race day.</p>
+        <p style="margin-top:18px"><span class="ph">Placeholder · prizes TBA</span></p>
+      </div>
+      <div class="podium">
+        <div class="pz first"><div class="place">1st down</div><div class="amt tnum">$500</div></div>
+        <div class="pz"><div class="place">2nd down</div><div class="amt tnum">$300</div></div>
+        <div class="pz"><div class="place">3rd down</div><div class="amt tnum">$100</div></div>
+      </div>
+    </div>
+  </section>
+  <section class="section" style="padding-top:0">
+    <div class="split">
+      <div>
+        <div class="eyebrow">Where your money goes</div>
+        <h2 style="margin-top:12px">Every ball helps Ladysmith.</h2>
+      </div>
+      <p class="lede">Money raised supports Ladysmith Kinsmen community projects. <span class="ph">Beneficiary copy TBC</span></p>
+    </div>
+  </section>
+  <footer class="site-foot">
+    <div class="logo-slot" role="img" aria-label="Club mark not shown. Permission to use the official emblem is pending."></div>
+    <div>
+      <strong>Running of the Balls is a Ladysmith Kinsmen fundraiser.</strong>
+      The Kinsmen Club of Ladysmith is a member club of Kin Canada. Race day is on High Street, Ladysmith, BC.
+    </div>
+    <div class="links">
+      <a href="#how">How it works</a>
+      <a href="#prizes">Prizes &amp; rules</a>
+      <a href="/purchase">Your purchases</a>
+      <a href="/admin">Offline sales</a>
+      <a href="https://github.com/brianbancroft/running-of-the-balls">Open source on GitHub</a>
+    </div>
+    <div class="fine">
+      <span>Official club marks are not shown here. Permission is pending.</span>
+      <span>Demo build · payments in Stripe test mode · figures are placeholders</span>
+    </div>
+  </footer>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

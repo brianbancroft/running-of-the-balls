@@ -40,10 +40,10 @@ Open `http://localhost:8787`.
 
 ### Try each flow
 
-1. **Buy a ball.** On `/`, click an open ball, enter an email, and choose “Buy this ball (no charge)”. The ball turns sold. Buying it again returns a conflict. Nothing is charged.
-2. **See purchases.** The panel lists that email’s purchases after the buy. Open `/purchase?email=you@example.com` to look them up again, including status.
+1. **Buy a ball.** On `/`, click a bright ball in the marquee (or open `/pick`). Continue to checkout, enter an email, and choose the test pay button. The card fields are disabled placeholders. The ball locks. Buying it again returns a conflict. Nothing is charged. Set `ALLOW_BALL_PICKING` to `false` and restart to try the quantity stepper instead.
+2. **See purchases.** After checkout, the test receipt links to `/purchase?email=you@example.com`, which lists that email’s balls and status.
 3. **See the email record.** Open `/selections?email=you@example.com`. Each row is that email plus the ball, and the stored receipt subject. The receipt is in D1 even when Resend is not called.
-4. **Record an offline sale.** Set `ADMIN_TOKEN` in `.dev.vars`, restart `wrangler dev`, open `/admin`, enter the token, pick an open ball, and submit a name and email. That ball locks the same way.
+4. **Record an offline sale.** Set `ADMIN_TOKEN` in `.dev.vars`, restart `wrangler dev`, open `/admin`, enter the token, a free ball number, and a name and email. That ball locks the same way.
 
 ```bash
 curl -s -X POST http://127.0.0.1:8787/api/purchases \
@@ -74,7 +74,11 @@ The D1 `database_id` in `wrangler.jsonc` is a local placeholder. It does not cre
 | `src/email/deliver.ts` | Dry-run by default; Resend only when delivery is switched on and a key exists |
 | `src/payments/stripe-test.ts` | Fake test-mode reference. No Stripe HTTP call |
 | `src/client/app.ts` | Browser UI, compiled to `public/app.js` |
-| `public/index.html` | Purchase board |
+| `public/index.html` | Home marquee, pick or quantity, prizes |
+| `public/pick.html` | Picker grid, find-by-number, blocks of 100 |
+| `public/checkout.html` | Stripe test-mode checkout |
+| `public/confirmation.html` | Test receipt |
+| `public/styles.css` | Kin red / navy tokens and ball states |
 | `public/purchase.html` | Customer purchase view |
 | `public/selections.html` | Email-and-ball records |
 | `public/admin.html` | Offline demo sales |
@@ -118,6 +122,10 @@ A live Ladysmith Kinsmen event needs the appropriate British Columbia charitable
 ### Cloudflare Workers
 
 The Workers runtime (`workerd`) is Apache-2.0. Using the hosted Cloudflare service is a separate matter and is governed by Cloudflare’s current service terms, including the [Self-Serve Subscription Agreement](https://www.cloudflare.com/terms/) where that agreement applies. Customer code stays the customer’s content, and you still need the rights to that code and its dependencies. Review the current agreement before deploying. This scaffold does not deploy itself.
+
+### Brand marks
+
+Official Kin Canada and Kinsmen Club of Ladysmith logos and lockups are not in this repository. Permission to use them on this open-source demo is still pending. The interface uses the Kin red and navy colour tokens and a text wordmark only.
 
 ### Dependency licenses
 

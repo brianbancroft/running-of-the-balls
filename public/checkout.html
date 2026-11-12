@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en-CA">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Check out · Running of the Balls</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,800&family=Source+Sans+3:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body data-page="checkout">
+  <div id="live" class="sr-only" aria-live="assertive"></div>
+  <div class="ribbon"><span class="pill">Demo</span> Payments run in Stripe test mode — no real charges. Prices, ball counts and prizes shown are placeholders.</div>
+  <div class="testband"><span class="tag">Test mode</span> This is a demo. Payments use Stripe test mode — no real money moves and no real card is charged.</div>
+  <header class="site-head">
+    <a class="wordmark" href="/"><span class="k">Ladysmith Kinsmen</span><span class="n">Running of <em>the Balls</em></span></a>
+    <div class="steps-nav" aria-label="Checkout steps">
+      <span class="ok"><b>✓</b> Pick</span><span class="sep"></span>
+      <span class="on"><b>2</b> Pay (test)</span><span class="sep"></span>
+      <span><b>3</b> You're in</span>
+    </div>
+  </header>
+  <main class="co">
+    <div>
+      <h1>Check out</h1>
+      <div class="panel">
+        <div class="alert kin" id="taken" hidden></div>
+        <h2>Your order</h2>
+        <div id="order"></div>
+        <div class="tot"><span>Total <span class="ph">Placeholder price</span></span><strong id="order-total"></strong></div>
+        <a class="btn link" href="/pick">Back to picking</a>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Your details</h2>
+      <p class="fine">Used to show your receipt. <span class="ph">Email use TBC</span></p>
+      <div class="fld"><label for="buyer-name">Name</label><input class="in" id="buyer-name" name="name" autocomplete="name" placeholder="Your name"></div>
+      <div class="fld"><label for="buyer-email">Email</label><input class="in" id="buyer-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required></div>
+      <div class="pay">
+        <div class="hd"><span class="tag">Test</span> Payment <span class="by">Stripe · test mode</span></div>
+        <div class="fld">
+          <label for="card">Card number</label>
+          <input class="in ph-text" id="card" disabled placeholder="4242 4242 4242 4242" aria-describedby="card-hint">
+          <p class="hint" id="card-hint">Stripe's public test card, shown as a placeholder. Never enter a real card on this demo.</p>
+        </div>
+        <div class="two">
+          <div class="fld"><label for="expiry">Expiry</label><input class="in ph-text" id="expiry" disabled placeholder="12 / 34"></div>
+          <div class="fld"><label for="cvc">CVC</label><input class="in ph-text" id="cvc" disabled placeholder="123"></div>
+        </div>
+      </div>
+      <button class="btn red" id="pay" type="button" style="width:100%;margin-top:22px">Pay · test</button>
+      <p class="fine">No live charge. Test payments never reach a bank.</p>
+    </div>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

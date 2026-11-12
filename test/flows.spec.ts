@@ -45,7 +45,7 @@ describe("Running of the Balls demo", () => {
     const body = await response.json<{
       balls: Array<{ ballNumber: number; status: string }>;
     }>();
-    expect(body.balls).toHaveLength(48);
+    expect(body.balls).toHaveLength(1000);
     expect(JSON.stringify(body)).not.toContain("@");
     expect(body.balls.find((ball) => ball.ballNumber === 3)?.status).toBe("sold");
     expect(body.balls.find((ball) => ball.ballNumber === 6)?.status).toBe("selected");
@@ -269,6 +269,22 @@ describe("Running of the Balls demo", () => {
       "test-admin-token",
     );
     expect(sold.status).toBe(409);
+
+    const relock = await post(
+      "/api/admin/offline-sales",
+      {
+        email: "another.table@example.com",
+        buyerName: "Second",
+        ballId: 8,
+        note: "Second attempt at the same ball.",
+      },
+      "test-admin-token",
+    );
+    expect(relock.status).toBe(409);
+    const owners = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM ball_selections WHERE ball_id = 8`,
+    ).first<{ n: number }>();
+    expect(owners?.n).toBe(1);
   });
 
   it("assigns the next open ball when picking is turned off", async () => {
