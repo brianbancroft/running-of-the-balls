@@ -5,7 +5,7 @@ import { buildSelectionReceipt } from "../src/email/receipt";
 import { planEmailDelivery, sendSelectionReceipt } from "../src/email/deliver";
 import worker from "../src/index";
 import { buildDemoPayment } from "../src/payments/stripe-test";
-import { holdBall } from "../src/purchase-engine";
+import { purchaseBall } from "../src/purchase-engine";
 
 async function call(path: string, init?: RequestInit): Promise<Response> {
   const ctx = createExecutionContext();
@@ -287,16 +287,30 @@ describe("Running of the Balls demo", () => {
     expect(owners?.n).toBe(1);
   });
 
-  it("assigns the next open ball when picking is turned off", async () => {
+  it("honors the pick-a-ball switch on the purchase engine", async () => {
     const config = readConfig(env);
-    const purchase = await holdBall(
+    await expect(
+      purchaseBall(
+        env.DB,
+        { email: "pick.on@example.com", buyerName: null, ballId: undefined },
+        config,
+      ),
+    ).rejects.toThrow(/Choose a ball/);
+    await expect(
+      purchaseBall(
+        env.DB,
+        { email: "pick.off@example.com", buyerName: null, ballId: 70 },
+        { ...config, allowBallPicking: false },
+      ),
+    ).rejects.toThrow(/turned off/);
+    const assigned = await purchaseBall(
       env.DB,
-      { email: "assign.demo@example.com", buyerName: null, ballId: undefined },
+      { email: "random.demo@example.com", buyerName: null, ballId: undefined },
       { ...config, allowBallPicking: false },
     );
-    expect(purchase.ball.status).toBe("selected");
-    expect(purchase.paymentMode).toBe("stripe_test_fake");
-    expect(purchase.charged).toBe(false);
+    expect(assigned.purchase.ball.status).toBe("sold");
+    expect(assigned.purchase.charged).toBe(false);
+    expect(assigned.purchase.paymentMode).toBe("stripe_test_fake");
   });
 
   it("refuses a live Stripe key and does not send the dry-run receipt", async () => {

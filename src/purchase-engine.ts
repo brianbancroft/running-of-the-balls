@@ -287,13 +287,18 @@ async function chooseBall(
   if (ballId != null) {
     throw new HttpError(400, "Choosing a specific ball is turned off for this demo.");
   }
-  const row = await db
-    .prepare(
-      `SELECT id FROM balls WHERE status = 'available' ORDER BY ball_number ASC LIMIT 1`,
-    )
-    .first<{ id: number }>();
-  if (!row) throw new HttpError(409, "Every ball is already held or recorded.");
-  return row.id;
+  const open = await db
+    .prepare(`SELECT id FROM balls WHERE status = 'available'`)
+    .all<{ id: number }>();
+  if (open.results.length === 0) {
+    throw new HttpError(409, "Every ball is already held or recorded.");
+  }
+  const sample = new Uint32Array(1);
+  crypto.getRandomValues(sample);
+  const index = sample[0]! % open.results.length;
+  const chosen = open.results[index];
+  if (!chosen) throw new HttpError(409, "Every ball is already held or recorded.");
+  return chosen.id;
 }
 
 async function tryHold(
