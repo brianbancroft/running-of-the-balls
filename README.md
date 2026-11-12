@@ -2,7 +2,7 @@
 
 An open-source system for the Ladysmith Kinsmen Running of the Balls fundraiser.
 
-This repository is a local demonstration scaffold. It is not a live gaming site, it does not take payment, and it is not a British Columbia charitable gaming licence. A live club event would need that licence before any real money is taken. Nothing below is legal advice.
+The demonstration is hosted at [https://balls.bancroft.io](https://balls.bancroft.io). It is not a licensed gaming site, it does not take payment, and it is not a British Columbia charitable gaming licence. A live club event would need that licence before any real money is taken. Nothing below is legal advice. A push to this repository does not update the hosted demo.
 
 ## What you can click through
 
@@ -62,17 +62,17 @@ cp .dev.vars.example .dev.vars
 
 `.dev.vars` is gitignored. Do not commit it.
 
-The Worker `running-of-the-balls` is hosted on Cloudflare, bound to the D1 database named in `wrangler.jsonc`. This repository does not register a domain or change DNS. The intended public URL is `https://balls.bancroft.io` once that custom domain is attached.
+The Worker `running-of-the-balls` is hosted on Cloudflare, bound to the D1 database named in `wrangler.jsonc`. The public demo is [https://balls.bancroft.io](https://balls.bancroft.io). This repository does not register a domain or change DNS, and it does not deploy itself.
 
 ## Deploy checklist
 
-The Worker and its D1 database are already hosted. What is still outstanding is below.
+The Worker, its D1 database, and [https://balls.bancroft.io](https://balls.bancroft.io) are already hosted. What is still outstanding is below.
 
 1. A Cloudflare account, and a review of Cloudflare’s current service terms, including the Self-Serve Subscription Agreement where it applies. Done for this demo.
 2. A D1 database for the Worker, with the `database_id` in `wrangler.jsonc` and the checked-in migrations applied. Done for this demo.
 3. Wrangler secrets, set outside git. `wrangler secret put` publishes a Worker version, so treat it as a deploy. The names are `RESEND_API_KEY`, `STRIPE_SECRET_KEY`, `ADMIN_TOKEN`, `ADMIN_EMAILS`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `SESSION_SECRET`. `STRIPE_SECRET_KEY` must stay empty or be a Stripe test key (`sk_test_`). Never put a live key (`sk_live_`, `rk_live_`, `pk_live_`) in the Worker. Leave `EMAIL_DELIVERY` as `dry_run` until a real Resend send is an intentional change. `ALLOW_BALL_PICKING` is a plain var, not a secret: `true` lets buyers pick a number, `false` assigns an open ball at random. `ADMIN_EMAILS` is a comma-separated list of Google account emails (trimmed, compared without case). An empty list means nobody is an admin via Google. `ADMIN_TOKEN` remains the API fallback.
-4. A Google Cloud OAuth web client, only if admin sign-in should be on. Register both callback URLs: `http://localhost:8787/api/auth/google/callback` for local `wrangler dev`, and `https://balls.bancroft.io/api/auth/google/callback` for the future demo host. Also register the JavaScript origins `http://localhost:8787` and `https://balls.bancroft.io`. Put the client id, client secret, and a long random `SESSION_SECRET` in the secrets above. If those values are missing, `/api/auth/google` answers 503 and `/admin` keeps the token field. This repository does not create the Google client or change DNS.
-5. DNS for `balls.bancroft.io`, on the Cloudflare zone Brian already controls, pointing at this Worker. Do not buy a domain for this demo. The callback URL above is documentation for that future host. Nothing here points DNS at it.
+4. A Google Cloud OAuth web client, only if admin sign-in should be on. Register both callback URLs: `http://localhost:8787/api/auth/google/callback` for local `wrangler dev`, and `https://balls.bancroft.io/api/auth/google/callback` for the demo host. Also register the JavaScript origins `http://localhost:8787` and `https://balls.bancroft.io`. Put the client id, client secret, and a long random `SESSION_SECRET` in the secrets above. If those values are missing, `/api/auth/google` answers 503 and `/admin` keeps the token field. This repository does not create the Google client or change DNS.
+5. DNS for `balls.bancroft.io`, on the Cloudflare zone Brian already controls, pointing at this Worker. Done for this demo. Do not buy a domain for this demo. This repository does not register a domain or change DNS.
 6. The appropriate British Columbia charitable gaming licence before any real money is taken. Until then the hosted copy stays a demonstration: test markers, no live charge, placeholder prices and prizes. `GAMING_LICENCE_NUMBER` and `GAMING_RULES_URL` are plain vars in `wrangler.jsonc`, not secrets. Leave the licence number empty until the club has one. An empty number keeps the banner “Demo — not licensed, no real tickets sold.” An empty rules URL points at the placeholder `/rules` page. Do not invent a licence number, a prize, odds, or house rules in these vars.
 7. Official Kin Canada and Kinsmen Club of Ladysmith marks are in `public/marks/` for this demo. Permission to use them here is granted. They are trademarks of Kin Canada and the Kinsmen Club of Ladysmith and are not covered by the MIT license.
 
@@ -122,7 +122,7 @@ API routes:
 | `GET /api/admin/selections?email=` | Email-and-ball records for an admin, including receipt text |
 | `GET /api/auth/session` | Current Google session, if any. Does not require sign-in |
 | `GET /api/auth/google` | Start Google sign-in. 503 when the client is not configured |
-| `GET /api/auth/google/callback` | Google redirects here. Local: `http://localhost:8787/api/auth/google/callback`. Future host: `https://balls.bancroft.io/api/auth/google/callback` |
+| `GET /api/auth/google/callback` | Google redirects here. Local: `http://localhost:8787/api/auth/google/callback`. Demo host: `https://balls.bancroft.io/api/auth/google/callback` |
 | `POST /api/auth/logout` | Clear the session cookie |
 | `POST /api/admin/offline-sales` | Admin offline demo sale. Google admin session, or `Authorization: Bearer` token |
 | `GET /api/admin/sales` | Recent records for an admin |
@@ -171,7 +171,7 @@ Points the club should take to that office, rather than treat as decided here:
 
 ### Cloudflare Workers
 
-The Workers runtime (`workerd`) is Apache-2.0. Using the hosted Cloudflare service is a separate matter and is governed by Cloudflare’s current service terms, including the [Self-Serve Subscription Agreement](https://www.cloudflare.com/terms/) where that agreement applies. Customer code stays the customer’s content, and you still need the rights to that code and its dependencies. Review the current agreement before deploying. This scaffold does not deploy itself.
+The Workers runtime (`workerd`) is Apache-2.0. Using the hosted Cloudflare service is a separate matter and is governed by Cloudflare’s current service terms, including the [Self-Serve Subscription Agreement](https://www.cloudflare.com/terms/) where that agreement applies. Customer code stays the customer’s content, and you still need the rights to that code and its dependencies. Review the current agreement before deploying. The hosted demo is [https://balls.bancroft.io](https://balls.bancroft.io). This repository does not deploy itself.
 
 ### Brand marks
 
