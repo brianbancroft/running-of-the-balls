@@ -55,14 +55,12 @@
       "SESSION_SECRET"
     ]
   },
-  // database_id is a local placeholder. It does not provision a remote D1
-  // database. Replace it with the id from `wrangler d1 create` only when a
-  // real deployment is intended. Do not create or deploy as part of setup.
+  // Hosted D1 database for the running-of-the-balls Worker.
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "running-of-the-balls",
-      "database_id": "00000000-0000-0000-0000-000000000001",
+      "database_id": "be94389e-913a-49fe-804c-c2422e743a3a",
       "migrations_dir": "migrations"
     }
   ]
