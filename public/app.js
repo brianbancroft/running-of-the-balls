@@ -142,6 +142,12 @@ async function boot() {
         await initAdmin(balls);
 }
 function tuneChrome(config, soldOut) {
+    for (const node of document.querySelectorAll("[data-licence-status]")) {
+        node.textContent = config.licenceStatus;
+    }
+    for (const link of document.querySelectorAll("a[data-rules-link]")) {
+        link.href = config.rulesUrl;
+    }
     for (const node of document.querySelectorAll("[data-needs='pick']")) {
         node.hidden = !config.allowBallPicking || soldOut;
     }
@@ -807,16 +813,32 @@ function initCheckout(config, balls) {
             payNote.hidden = !blocked;
     };
     draw();
+    const attest = document.querySelector("#attest");
+    const attestNote = document.querySelector("#attest-note");
+    if (attest instanceof HTMLInputElement) {
+        attest.addEventListener("change", () => {
+            if (attest.checked && attestNote instanceof HTMLElement)
+                attestNote.hidden = true;
+        });
+    }
     pay.addEventListener("click", () => {
         void submitCheckout(config, name.value, email.value, pay);
     });
 }
 async function submitCheckout(config, name, email, pay) {
     const attest = document.querySelector("#attest");
+    const attestNote = document.querySelector("#attest-note");
     if (!(attest instanceof HTMLInputElement) || !attest.checked) {
-        say("Confirm you are 19 or older and physically in British Columbia.");
+        const message = "Confirm you are 19 or older and physically in British Columbia.";
+        if (attestNote instanceof HTMLElement) {
+            attestNote.hidden = false;
+            attestNote.textContent = message;
+        }
+        say(message);
         return;
     }
+    if (attestNote instanceof HTMLElement)
+        attestNote.hidden = true;
     pay.disabled = true;
     writeBuyer(name, email);
     const recorded = [];

@@ -7,7 +7,7 @@ import { planEmailDelivery, sendSelectionReceipt } from "../src/email/deliver";
 import worker from "../src/index";
 import { buildDemoPayment } from "../src/payments/stripe-test";
 import { marqueeNumbers } from "../src/client/format";
-import { BUYER_ATTESTATION_TEXT } from "../src/compliance";
+import { BUYER_ATTESTATION_TEXT, UNLICENSED_BANNER } from "../src/compliance";
 import { purchaseBall } from "../src/purchase-engine";
 
 const SEEDED_SOLD_TOKEN = "390822ccb06855179424236c3774f960118070866e3030acb0808837a6ca55d3";
@@ -37,7 +37,9 @@ function post(path: string, body: unknown, token?: string): Promise<Response> {
 async function callAs(
   path: string,
   init: RequestInit | undefined,
-  patch: Partial<CloudflareBindings>,
+  patch: Partial<{
+    [K in keyof CloudflareBindings]: CloudflareBindings[K] extends string ? string : CloudflareBindings[K];
+  }>,
 ): Promise<Response> {
   const bindings = Object.create(env) as CloudflareBindings;
   Object.assign(bindings, patch);
@@ -65,6 +67,67 @@ describe("Running of the Balls demo", () => {
     expect(body.allowBallPicking).toBe(true);
     expect(JSON.stringify(body)).not.toContain("sk_");
     expect(JSON.stringify(body)).not.toContain("test-admin-token");
+  });
+
+  it("shows the unlicensed banner until a licence number is configured", async () => {
+    const response = await call("/api/config");
+    const body = await response.json<{
+      demoMode: boolean;
+      licensed: boolean;
+      gamingLicenceNumber: string | null;
+      rulesUrl: string;
+      licenceStatus: string;
+    }>();
+    expect(body.demoMode).toBe(true);
+    expect(body.licensed).toBe(false);
+    expect(body.gamingLicenceNumber).toBeNull();
+    expect(body.rulesUrl).toBe("/rules");
+    expect(body.licenceStatus).toBe(UNLICENSED_BANNER);
+
+    const licensed = await callAs("/api/config", undefined, {
+      GAMING_LICENCE_NUMBER: "  123456  ",
+      GAMING_RULES_URL: "https://example.com/club-rules",
+    });
+    expect(licensed.status).toBe(200);
+    expect(await licensed.json()).toMatchObject({
+      demoMode: true,
+      licensed: true,
+      gamingLicenceNumber: "123456",
+      rulesUrl: "https://example.com/club-rules",
+      licenceStatus: "BC Gaming Event Licence #123456",
+    });
+
+    const pathRules = await callAs("/api/config", undefined, {
+      GAMING_LICENCE_NUMBER: "",
+      GAMING_RULES_URL: "/club-rules",
+    });
+    expect(await pathRules.json()).toMatchObject({ rulesUrl: "/club-rules", licensed: false });
+
+    const rejected = await callAs("/api/config", undefined, {
+      GAMING_LICENCE_NUMBER: "",
+      GAMING_RULES_URL: "javascript:alert(1)",
+    });
+    expect(rejected.status).toBe(500);
+    const restored = await callAs("/api/config", undefined, {
+      GAMING_LICENCE_NUMBER: "",
+      GAMING_RULES_URL: "",
+    });
+    expect(restored.status).toBe(200);
+    expect(await restored.json()).toMatchObject({ licensed: false, rulesUrl: "/rules", licenceStatus: UNLICENSED_BANNER });
+
+    const checkout = await call("/checkout");
+    expect(checkout.status).toBe(200);
+    const checkoutHtml = await checkout.text();
+    expect(checkoutHtml).toContain(UNLICENSED_BANNER);
+    expect(checkoutHtml).toContain("I am 19 or older and I am physically in British Columbia.");
+    const rules = await call("/rules");
+    expect(rules.status).toBe(200);
+    const rulesHtml = await rules.text();
+    expect(rulesHtml).toContain("Placeholder");
+    expect(rulesHtml).toContain("pending the club's licence terms");
+    expect(rulesHtml).toContain(UNLICENSED_BANNER);
+    expect(rulesHtml).toContain("None of those are stated on this page.");
+    expect(rulesHtml).not.toMatch(/\$\d/);
   });
 
   it("lists 2500 balls without buyer emails and shades seeded states", async () => {

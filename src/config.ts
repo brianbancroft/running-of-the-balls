@@ -1,3 +1,4 @@
+import { licenceNotice } from "./compliance";
 import { HttpError } from "./http";
 import { liveStripeKeyReason } from "./payments/stripe-test";
 import { parseEmail } from "./validation";
@@ -22,6 +23,10 @@ export type AppConfig = {
   googleClientSecret: string | undefined;
   sessionSecret: string | undefined;
   paymentsBlockedReason: string | null;
+  gamingLicenceNumber: string | null;
+  rulesUrl: string;
+  licensed: boolean;
+  licenceStatus: string;
 };
 
 export function parseAdminEmails(value: string | undefined): string[] {
@@ -71,6 +76,8 @@ export function readConfig(env: CloudflareBindings): AppConfig {
   }
 
   const stripeSecretKey = blank(env.STRIPE_SECRET_KEY);
+  const gamingLicenceNumber = readLicenceNumber(env.GAMING_LICENCE_NUMBER);
+  const rulesUrl = readRulesUrl(env.GAMING_RULES_URL);
 
   return {
     demoMode: true,
@@ -89,7 +96,43 @@ export function readConfig(env: CloudflareBindings): AppConfig {
     googleClientSecret: blank(env.GOOGLE_CLIENT_SECRET),
     sessionSecret: blank(env.SESSION_SECRET),
     paymentsBlockedReason: liveStripeKeyReason(stripeSecretKey),
+    gamingLicenceNumber,
+    rulesUrl,
+    licensed: gamingLicenceNumber !== null,
+    licenceStatus: licenceNotice(gamingLicenceNumber),
   };
+}
+
+function readLicenceNumber(value: string | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return null;
+  if (trimmed.length > 80 || /[\u0000-\u001f<>"'`]/.test(trimmed)) {
+    throw new HttpError(500, "GAMING_LICENCE_NUMBER is not a displayable licence number.");
+  }
+  return trimmed;
+}
+
+function readRulesUrl(value: string | undefined): string {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return "/rules";
+  if (
+    trimmed.startsWith("/") &&
+    !trimmed.startsWith("//") &&
+    trimmed.length <= 200 &&
+    !/[\s<>"']/.test(trimmed)
+  ) {
+    return trimmed;
+  }
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new HttpError(500, "GAMING_RULES_URL must be empty, a site path, or an https URL.");
+  }
+  if (url.protocol !== "https:" || url.hostname.length === 0 || trimmed.length > 500) {
+    throw new HttpError(500, "GAMING_RULES_URL must be empty, a site path, or an https URL.");
+  }
+  return url.toString();
 }
 
 export function assertPaymentsAllowed(config: AppConfig): void {

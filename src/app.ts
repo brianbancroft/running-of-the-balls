@@ -74,6 +74,10 @@ app.get("/api/config", (c) => {
     offlineSalesConfigured: Boolean(config.adminToken) || config.adminEmails.length > 0,
     googleSignIn: googleSignInReady(config),
     paymentsBlocked: Boolean(config.paymentsBlockedReason),
+    gamingLicenceNumber: config.gamingLicenceNumber,
+    rulesUrl: config.rulesUrl,
+    licensed: config.licensed,
+    licenceStatus: config.licenceStatus,
     disclaimer: DISCLAIMER,
   });
 });

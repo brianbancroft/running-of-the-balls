@@ -12,6 +12,10 @@ export type Config = {
   currency: string;
   paymentsBlocked: boolean;
   emailDelivery: string;
+  licensed: boolean;
+  gamingLicenceNumber: string | null;
+  rulesUrl: string;
+  licenceStatus: string;
 };
 
 export type Purchase = {

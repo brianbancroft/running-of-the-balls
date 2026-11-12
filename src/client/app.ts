@@ -169,6 +169,12 @@ async function boot(): Promise<void> {
 }
 
 function tuneChrome(config: Config, soldOut: boolean): void {
+  for (const node of document.querySelectorAll<HTMLElement>("[data-licence-status]")) {
+    node.textContent = config.licenceStatus;
+  }
+  for (const link of document.querySelectorAll<HTMLAnchorElement>("a[data-rules-link]")) {
+    link.href = config.rulesUrl;
+  }
   for (const node of document.querySelectorAll<HTMLElement>("[data-needs='pick']")) {
     node.hidden = !config.allowBallPicking || soldOut;
   }
@@ -808,6 +814,13 @@ function initCheckout(config: Config, balls: Map<number, Ball>): void {
     if (payNote instanceof HTMLElement) payNote.hidden = !blocked;
   };
   draw();
+  const attest = document.querySelector("#attest");
+  const attestNote = document.querySelector("#attest-note");
+  if (attest instanceof HTMLInputElement) {
+    attest.addEventListener("change", () => {
+      if (attest.checked && attestNote instanceof HTMLElement) attestNote.hidden = true;
+    });
+  }
   pay.addEventListener("click", () => {
     void submitCheckout(config, name.value, email.value, pay);
   });
@@ -815,10 +828,17 @@ function initCheckout(config: Config, balls: Map<number, Ball>): void {
 
 async function submitCheckout(config: Config, name: string, email: string, pay: HTMLButtonElement): Promise<void> {
   const attest = document.querySelector("#attest");
+  const attestNote = document.querySelector("#attest-note");
   if (!(attest instanceof HTMLInputElement) || !attest.checked) {
-    say("Confirm you are 19 or older and physically in British Columbia.");
+    const message = "Confirm you are 19 or older and physically in British Columbia.";
+    if (attestNote instanceof HTMLElement) {
+      attestNote.hidden = false;
+      attestNote.textContent = message;
+    }
+    say(message);
     return;
   }
+  if (attestNote instanceof HTMLElement) attestNote.hidden = true;
   pay.disabled = true;
   writeBuyer(name, email);
   const recorded: StoredReceipt["balls"] = [];

@@ -73,7 +73,7 @@ This is what Brian would provide before a hosted demo. It is not done here.
 3. Wrangler secrets, set outside git. `wrangler secret put` publishes a Worker version, so treat it as a deploy. The names are `RESEND_API_KEY`, `STRIPE_SECRET_KEY`, `ADMIN_TOKEN`, `ADMIN_EMAILS`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `SESSION_SECRET`. `STRIPE_SECRET_KEY` must stay empty or be a Stripe test key (`sk_test_`). Never put a live key (`sk_live_`, `rk_live_`, `pk_live_`) in the Worker. Leave `EMAIL_DELIVERY` as `dry_run` until a real Resend send is an intentional change. `ALLOW_BALL_PICKING` is a plain var, not a secret: `true` lets buyers pick a number, `false` assigns an open ball at random. `ADMIN_EMAILS` is a comma-separated list of Google account emails (trimmed, compared without case). An empty list means nobody is an admin via Google. `ADMIN_TOKEN` remains the API fallback.
 4. A Google Cloud OAuth web client, only if admin sign-in should be on. Register both callback URLs: `http://localhost:8787/api/auth/google/callback` for local `wrangler dev`, and `https://balls.bancroft.io/api/auth/google/callback` for the future demo host. Also register the JavaScript origins `http://localhost:8787` and `https://balls.bancroft.io`. Put the client id, client secret, and a long random `SESSION_SECRET` in the secrets above. If those values are missing, `/api/auth/google` answers 503 and `/admin` keeps the token field. This repository does not create the Google client, deploy the Worker, or change DNS.
 5. DNS for `balls.bancroft.io`, on the Cloudflare zone Brian already controls, pointing at this Worker. Do not buy a domain for this demo. The callback URL above is documentation for that future host. Nothing here points DNS at it.
-6. The appropriate British Columbia charitable gaming licence before any real money is taken. Until then the hosted copy stays a demonstration: test markers, no live charge, placeholder prices and prizes.
+6. The appropriate British Columbia charitable gaming licence before any real money is taken. Until then the hosted copy stays a demonstration: test markers, no live charge, placeholder prices and prizes. `GAMING_LICENCE_NUMBER` and `GAMING_RULES_URL` are plain vars in `wrangler.jsonc`, not secrets. Leave the licence number empty until the club has one. An empty number keeps the banner “Demo — not licensed, no real tickets sold.” An empty rules URL points at the placeholder `/rules` page. Do not invent a licence number, a prize, odds, or house rules in these vars.
 7. Official Kin Canada and Kinsmen Club of Ladysmith marks are in `public/marks/` for this demo. Permission to use them here is granted. They are trademarks of Kin Canada and the Kinsmen Club of Ladysmith and are not covered by the MIT license.
 
 ## Project layout
@@ -99,6 +99,7 @@ This is what Brian would provide before a hosted demo. It is not done here.
 | `public/purchase.html` | One purchase, opened with its receipt token |
 | `public/selections.html` | Admin email-and-ball records |
 | `public/admin.html` | Offline demo sales |
+| `public/rules.html` | Placeholder rules page. Not the club's licence terms |
 | `migrations/0001_init.sql` | D1 schema |
 | `migrations/0002_seed.sql` | Sample balls, including held, sold, and one offline record |
 | `migrations/0005_catalogue_2500.sql` | Extends the demo catalogue from 1,000 balls to 2,500, then adds the receipt token |
@@ -141,8 +142,32 @@ Running of the Balls, as a service-club fundraiser, is the kind of charitable ga
 - labels amounts as demonstration figures
 - keeps `demo_only` forced on in the database
 - allows only `stripe_test_fake` and `offline_demo` as payment markers
+- shows a demo ribbon on every page, and a second banner, “Demo — not licensed, no real tickets sold.”, in the page banner and the footer while `GAMING_LICENCE_NUMBER` is empty
+- asks a buyer, and an admin recording an offline sale, to attest that the buyer is 19 or older and physically in British Columbia, and stores that attestation with the purchase
+- serves `/rules` as placeholder text until the club publishes licence terms
 
-A live Ladysmith Kinsmen event needs the appropriate British Columbia charitable gaming licence before any real money is taken. Public licensing information is published by the Province of British Columbia (Gaming Policy and Enforcement Branch). The club’s own counsel, not this repository, is the place to confirm what a particular event requires.
+When `GAMING_LICENCE_NUMBER` is set, the banner and footer show `BC Gaming Event Licence #` plus that value. The demo ribbon stays. Setting a number in this copy does not turn on real sales. `GAMING_RULES_URL` is where the rules link points. Empty means `/rules`.
+
+### Unverified guidance for the club to confirm
+
+This subsection is a reading of public documents, checked on 12 November 2026. It is not a determination that this event needs a particular licence, and it is not legal advice. The club, with its own counsel, confirms what applies. The documents say they can change, and that the version on the publisher’s site prevails.
+
+The documents are the [Licensed Charitable Gaming Event Terms and Conditions](https://www.igcobc.ca/sites/default/files/assets/documents/licensed-charitable-gaming-event-terms-and-conditions.pdf) and the [Licensed Charitable Gaming Event Guidance](https://www.igcobc.ca/sites/default/files/assets/documents/licenced_charitable_gaming_event_guidance.pdf), both marked updated 1 August 2026, plus the Independent Gambling Control Office pages [Apply for a charitable gaming event licence](https://www.igcobc.ca/charitable-gaming/apply-charitable-gaming-event-licence) and [Run a charitable gaming event](https://www.igcobc.ca/charitable-gaming/run-charitable-gaming-event). The guidance PDF’s published filename uses the spelling “licenced”.
+
+Those documents say the previous British Columbia charitable gaming rules were replaced on 13 April 2026, and that the general manager of the Independent Gambling Control Office issues the licence. Many people still say Gaming Policy and Enforcement Branch. This repository does not decide which office a Ladysmith Kinsmen application goes to. Confirm that before applying.
+
+Points the club should take to that office, rather than treat as decided here:
+
+- The guidance describes an activity as gaming when someone pays something of value, a prize of value can be won, and the outcome is not predetermined or decided by skill alone. It says conducting a gaming event in BC without a licence from the general manager is unlawful. Whether Running of the Balls is that kind of event is for the club to confirm.
+- A token raffle, in the guidance, links a ticket number to an object that determines the winner. Rubber duck races are one of the published examples. A ball race may fall in that category. This repository does not classify the event, and it does not build the three-part ticket the guidance describes for a token raffle.
+- Licence classes A, B, and C are different, including who may hold one and what the proceeds may fund. This repository does not pick a class.
+- House rules, in the terms, have to be posted where entries are sold. The listed contents include a statement that participants are 19 or older, where and when the event is, the price, how a winner is determined, prizes and how to claim them, ties and complaints, unclaimed prizes, and odds when the odds are known. `/rules` is a placeholder and does not supply any of that. Do not copy a price, a prize, or odds into this app until the club’s licence states them.
+- The terms say an organization cannot advertise a gaming event until a licence is issued, and that advertising for a licensed event includes the licence number in the form “BC Gaming Event Licence #”. They also describe a responsible-gambling message, with exceptions. This demo does not invent that message or a helpline number.
+- The terms’ account of the Gaming Events Regulation says a licensee must not let someone participate while they are outside British Columbia. The checkout checkbox records an attestation. It does not check a location. The club may need more than a checkbox.
+- Online ordering, online payment, and an electronic raffle system are described as needing approval on the licence. This demo does not take payment. A live site that sold entries online would need whatever approval the licence actually requires. Stripe in this repository stays a fake test reference.
+- The guidance says a building or capital project of $20,000 or more needs a special approval before gaming proceeds are used for it. The home page mentions an infrastructure project. That sentence is not an approved use of proceeds.
+- The public “run a charitable gaming event” page says a Gaming Event Revenue and Disbursement Report is due within 90 days after the last event on the licence. This app does not prepare that report.
+- The terms also describe gaming-account and two-person fund controls that depend on the projected revenue. Those are club operations, not features of this demo.
 
 ### Cloudflare Workers
 

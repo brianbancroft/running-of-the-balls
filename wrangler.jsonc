@@ -33,7 +33,12 @@
     "PAYMENT_MODE": "stripe_test_fake",
     "DEMO_AMOUNT_CENTS": "500",
     "EMAIL_FROM": "Running of the Balls Demo <onboarding@resend.dev>",
-    "PUBLIC_APP_NAME": "Ladysmith Kinsmen Running of the Balls"
+    "PUBLIC_APP_NAME": "Ladysmith Kinsmen Running of the Balls",
+    // Plain vars, not secrets. Leave the licence number empty until the club
+    // has one. An empty number shows the unlicensed demo banner. An empty
+    // rules URL points at the placeholder /rules page. Do not invent either.
+    "GAMING_LICENCE_NUMBER": "",
+    "GAMING_RULES_URL": ""
   },
   // Names only. Values come from .dev.vars locally or `wrangler secret put`
   // on a real Worker. Missing values warn in local dev and must not be invented here.
