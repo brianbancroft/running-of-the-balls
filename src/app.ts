@@ -1,10 +1,20 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
+import { getCookie, setCookie } from "hono/cookie";
 import { assertAdmin } from "./auth";
 import { ADMIN_ATTESTATION_TEXT, BUYER_ATTESTATION_TEXT } from "./compliance";
 import { DISCLAIMER, googleSignInReady, readConfig } from "./config";
 import { beginGoogleSignIn, clearSession, finishGoogleSignIn } from "./google-auth";
 import { HttpError, isMissingSchema, isRecord } from "./http";
 import { logError, logInfo } from "./log";
+import {
+  RESERVATION_COOKIE,
+  checkoutReservation,
+  expireDueHolds,
+  holdForSession,
+  releaseForSession,
+  reservationForSession,
+} from "./reservations";
 import { readSession } from "./session";
 import {
   cancelHold,
@@ -22,9 +32,11 @@ import {
   parseEmail,
   parseName,
   parseNote,
+  parseBallIdList,
   parseOptionalBallId,
   parsePurchaseId,
   parseReceiptToken,
+  parseSessionCookie,
 } from "./validation";
 
 const app = new Hono<{ Bindings: CloudflareBindings }>();
@@ -45,6 +57,7 @@ app.use("*", async (c, next) => {
 });
 
 app.use("/api/*", async (c, next) => {
+  if (c.req.path !== "/api/health") await expireDueHolds(c.env.DB);
   await next();
   c.header("Cache-Control", "no-store");
   c.header("X-Content-Type-Options", "nosniff");
@@ -106,6 +119,56 @@ app.post("/api/auth/logout", (c) => {
 app.get("/api/balls", async (c) => {
   const balls = await listBalls(c.env.DB);
   return c.json({ balls });
+});
+
+app.get("/api/reservations", async (c) => {
+  const view = await reservationForSession(c.env.DB, reservationId(c));
+  return c.json(view);
+});
+
+app.post("/api/reservations", async (c) => {
+  const body = await readJsonObject(c);
+  const ballId = parseOptionalBallId(body.ballId);
+  if (ballId == null) throw new HttpError(400, "Choose a ball.");
+  const held = await holdForSession(c.env.DB, reservationId(c), ballId);
+  if (held.session) writeReservationCookie(c, held.session.id);
+  logInfo({ message: "ball reserved", ballId, charged: false });
+  return c.json(held, 201);
+});
+
+app.post("/api/reservations/release", async (c) => {
+  const body = await readJsonObject(c);
+  const ballId = parseOptionalBallId(body.ballId);
+  if (ballId == null) throw new HttpError(400, "Choose a ball.");
+  const view = await releaseForSession(c.env.DB, reservationId(c), ballId);
+  if (view.session) writeReservationCookie(c, view.session.id);
+  logInfo({ message: "reservation released", ballId });
+  return c.json(view);
+});
+
+app.post("/api/reservations/checkout", async (c) => {
+  const config = readConfig(c.env);
+  const body = await readJsonObject(c);
+  parseAttestation(body);
+  const result = await checkoutReservation(
+    c.env.DB,
+    reservationId(c),
+    {
+      email: parseEmail(body.email),
+      buyerName: parseName(body.buyerName),
+      ballIds: parseBallIdList(body.ballIds),
+      attestation: { by: "buyer", text: BUYER_ATTESTATION_TEXT },
+    },
+    config,
+    originOf(c),
+  );
+  logInfo({
+    message: "reservation checked out",
+    balls: result.purchases.length,
+    released: result.released.length,
+    charged: false,
+  });
+  return c.json(result, 201);
 });
 
 app.post("/api/selections", async (c) => {
@@ -273,6 +336,20 @@ app.onError((error, c) => {
 
 function originOf(c: { req: { url: string } }): string {
   return new URL(c.req.url).origin;
+}
+
+function reservationId(c: Context<{ Bindings: CloudflareBindings }>): string | null {
+  return parseSessionCookie(getCookie(c, RESERVATION_COOKIE));
+}
+
+function writeReservationCookie(c: Context<{ Bindings: CloudflareBindings }>, sessionId: string): void {
+  setCookie(c, RESERVATION_COOKIE, sessionId, {
+    path: "/",
+    httpOnly: true,
+    secure: new URL(c.req.url).protocol === "https:",
+    sameSite: "Lax",
+    maxAge: 60 * 30,
+  });
 }
 
 async function selectionsForAdmin(c: {

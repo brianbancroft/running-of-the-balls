@@ -173,6 +173,7 @@ button{font:inherit;cursor:pointer}
 .tray .total{margin-left:auto;text-align:right;line-height:1.2}
 .tray .total strong{font-size:24px;font-variant-numeric:tabular-nums;display:block}
 .tray .total span{font-size:14px;color:#AEBBC4}
+.tray .hold-clock{display:block;margin-top:4px;font-weight:600;letter-spacing:0;text-transform:none}
 .tray .ph{border-color:rgba(255,255,255,.4);color:#C9D2D8;background:transparent}
 .tray .clear{color:#C9D2D8;font-weight:600;font-size:15px;text-decoration:underline;text-underline-offset:3px}
 

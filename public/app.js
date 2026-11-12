@@ -1,6 +1,6 @@
-import { buyBall, getBalls, getConfig, getSession, offlineSale, purchaseForToken, selectionsFor, } from "./api.js";
+import { buyBall, checkoutReservation, getBalls, getConfig, getReservation, getSession, holdReservation, offlineSale, purchaseForToken, releaseReservation, selectionsFor, } from "./api.js";
 import { ballColour, ballNumber, marqueeNumbers, money } from "./format.js";
-import { readBuyer, readPaused, readPicks, readQty, readReceipt, writeBuyer, writePaused, writePicks, writeQty, writeReceipt, fieldSeed, } from "./store.js";
+import { readBuyer, readDeadline, readPaused, readPicks, readQty, readReceipt, writeBuyer, writeDeadline, writePaused, writePicks, writeQty, writeReceipt, fieldSeed, } from "./store.js";
 function inventoryOf(balls) {
     return new Map(balls.map((ball) => [ball.ballNumber, ball]));
 }
@@ -10,11 +10,116 @@ function isFree(ball) {
 function visualFor(n, balls, picks, taken = new Set()) {
     if (taken.has(n))
         return "taken";
+    if (picks.includes(n) && balls.get(n)?.status !== "sold")
+        return "mine";
     if (!isFree(balls.get(n)))
         return "sold";
-    if (picks.includes(n))
-        return "mine";
     return "available";
+}
+function stillOurs(n, balls, picks) {
+    return picks.includes(n) && balls.get(n)?.status === "selected";
+}
+let reservationBusy = false;
+let holdTimer = 0;
+function formatRemain(ms) {
+    const total = Math.max(0, Math.ceil(ms / 1000));
+    const minutes = Math.floor(total / 60);
+    const seconds = total % 60;
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+function holdClockText() {
+    const deadline = readDeadline();
+    if (!deadline)
+        return "";
+    const remain = new Date(deadline).getTime() - Date.now();
+    if (remain <= 0)
+        return "Held for 0:00. Unpaid balls go back in the pit.";
+    return `Held for ${formatRemain(remain)}. Unpaid balls go back in the pit when this runs out.`;
+}
+function paintHoldClocks() {
+    const text = holdClockText();
+    for (const node of document.querySelectorAll("[data-hold-clock]")) {
+        node.textContent = text;
+    }
+}
+function armHoldClock() {
+    window.clearInterval(holdTimer);
+    const deadline = readDeadline();
+    if (!deadline)
+        return;
+    const tick = () => {
+        paintHoldClocks();
+        if (new Date(deadline).getTime() <= Date.now()) {
+            window.clearInterval(holdTimer);
+            location.reload();
+        }
+    };
+    tick();
+    holdTimer = window.setInterval(tick, 1000);
+}
+function applyReservation(reservation, balls) {
+    const picks = reservation.holds
+        .filter((hold) => hold.state === "pending_payment")
+        .map((hold) => hold.ballNumber);
+    writePicks(picks);
+    writeDeadline(reservation.session?.status === "open" && picks.length > 0 ? reservation.session.expiresAt : null);
+    for (const hold of reservation.holds) {
+        if (hold.state !== "pending_payment")
+            continue;
+        const ball = balls.get(hold.ballNumber);
+        if (ball)
+            balls.set(hold.ballNumber, { ...ball, status: "selected" });
+    }
+    armHoldClock();
+    return picks;
+}
+async function reloadInventory(balls) {
+    const fresh = inventoryOf(await getBalls());
+    balls.clear();
+    for (const [key, value] of fresh)
+        balls.set(key, value);
+}
+async function toggleHeld(n, balls, picks) {
+    if (reservationBusy)
+        return picks;
+    const ball = balls.get(n);
+    if (!ball)
+        return picks;
+    const state = visualFor(n, balls, picks);
+    if (state === "sold")
+        return picks;
+    reservationBusy = true;
+    try {
+        const reservation = state === "mine" ? await releaseReservation(ball.id) : await holdReservation(ball.id);
+        if (state === "mine")
+            balls.set(n, { ...ball, status: "available" });
+        return applyReservation(reservation, balls);
+    }
+    catch (error) {
+        say(error instanceof Error ? error.message : "That ball is not available.");
+        await reloadInventory(balls);
+        try {
+            return applyReservation(await getReservation(), balls);
+        }
+        catch {
+            return readPicks();
+        }
+    }
+    finally {
+        reservationBusy = false;
+    }
+}
+async function releaseNumbers(numbers, balls) {
+    let picks = readPicks();
+    for (const n of numbers) {
+        const ball = balls.get(n);
+        if (!ball)
+            continue;
+        const reservation = await releaseReservation(ball.id);
+        balls.set(n, { ...ball, status: "available" });
+        picks = applyReservation(reservation, balls);
+    }
+    return picks;
 }
 function paint(node, n, state, status) {
     const colour = ballColour(n);
@@ -123,7 +228,16 @@ async function boot() {
     const page = document.body.dataset.page ?? "home";
     const [config, list] = await Promise.all([getConfig(), getBalls()]);
     const balls = inventoryOf(list);
-    const free = list.filter((ball) => ball.status === "available").length;
+    if (config.allowBallPicking && (page === "home" || page === "pick" || page === "checkout")) {
+        try {
+            applyReservation(await getReservation(), balls);
+        }
+        catch {
+            writePicks([]);
+            writeDeadline(null);
+        }
+    }
+    const free = [...balls.values()].filter((ball) => ball.status === "available").length;
     const soldOut = free === 0;
     tuneChrome(config, soldOut);
     if (page === "home")
@@ -319,11 +433,14 @@ function initHome(config, balls, total, free, soldOut) {
             remove.textContent = "×";
             remove.setAttribute("aria-label", `Remove ball ${ballNumber(n)}`);
             remove.addEventListener("click", () => {
-                picks = picks.filter((pick) => pick !== n);
-                writePicks(picks);
-                patchMarquee(tilt, balls, picks);
-                drawTray();
-                say(`Ball ${ballNumber(n)} removed. ${picks.length} balls.`);
+                const before = picks.includes(n);
+                void (async () => {
+                    picks = await toggleHeld(n, balls, picks);
+                    patchMarquee(tilt, balls, picks);
+                    drawTray();
+                    if (before !== picks.includes(n))
+                        say(`Ball ${ballNumber(n)} removed. ${picks.length} balls.`);
+                })();
             });
             wrap.append(ball, remove);
             group.append(wrap);
@@ -333,10 +450,18 @@ function initHome(config, balls, total, free, soldOut) {
         clear.className = "clear";
         clear.textContent = "Clear";
         clear.addEventListener("click", () => {
-            picks = [];
-            writePicks(picks);
-            patchMarquee(tilt, balls, picks);
-            drawTray();
+            const held = [...picks];
+            void (async () => {
+                try {
+                    picks = await releaseNumbers(held, balls);
+                }
+                catch (error) {
+                    say(error instanceof Error ? error.message : "Those balls could not be released.");
+                    picks = readPicks();
+                }
+                patchMarquee(tilt, balls, picks);
+                drawTray();
+            })();
         });
         const total = document.createElement("div");
         total.className = "total";
@@ -344,7 +469,11 @@ function initHome(config, balls, total, free, soldOut) {
         strong.textContent = money(picks.length * config.amountCents, config.currency);
         const meta = document.createElement("span");
         meta.append(`${picks.length} × `, ph("Placeholder price"));
-        total.append(strong, meta);
+        const clock = document.createElement("span");
+        clock.className = "hold-clock";
+        clock.dataset.holdClock = "true";
+        clock.textContent = holdClockText();
+        total.append(strong, meta, clock);
         const next = document.createElement("a");
         next.className = "btn red";
         next.href = "/checkout";
@@ -398,13 +527,17 @@ function initHome(config, balls, total, free, soldOut) {
             });
             return;
         }
-        picks = state === "mine" ? picks.filter((pick) => pick !== n) : [...picks, n];
-        writePicks(picks);
-        patchMarquee(tilt, balls, picks);
-        drawTray();
-        say(state === "mine"
-            ? `Ball ${ballNumber(n)} removed. ${picks.length} balls, ${money(picks.length * config.amountCents, config.currency)}.`
-            : `Ball ${ballNumber(n)} added. ${picks.length} balls, ${money(picks.length * config.amountCents, config.currency)}.`);
+        const before = picks.includes(n);
+        void (async () => {
+            picks = await toggleHeld(n, balls, picks);
+            patchMarquee(tilt, balls, picks);
+            drawTray();
+            if (before === picks.includes(n))
+                return;
+            say(before
+                ? `Ball ${ballNumber(n)} removed. ${picks.length} balls, ${money(picks.length * config.amountCents, config.currency)}.`
+                : `Ball ${ballNumber(n)} held. ${picks.length} balls, ${money(picks.length * config.amountCents, config.currency)}.`);
+        })();
     });
 }
 let dismissBlocked = null;
@@ -438,10 +571,20 @@ function showBlocked(anchor, n, balls, picks, onPick) {
             choose.className = "btn red sm";
             choose.textContent = `Pick ${ballNumber(first)}`;
             choose.addEventListener("click", () => {
-                writePicks([...new Set([...readPicks().filter((pick) => pick !== n), first])]);
-                finish();
-                onPick();
-                say(`Ball ${ballNumber(first)} added.`);
+                const ball = balls.get(first);
+                if (!ball)
+                    return;
+                void (async () => {
+                    try {
+                        applyReservation(await holdReservation(ball.id), balls);
+                        finish();
+                        onPick();
+                        say(`Ball ${ballNumber(first)} held.`);
+                    }
+                    catch (error) {
+                        say(error instanceof Error ? error.message : "That ball is not available.");
+                    }
+                })();
             });
             acts.append(choose);
         }
@@ -523,7 +666,7 @@ function initPick(config, balls, soldOut) {
             nm.textContent = `Ball ${ballNumber(n)}`;
             const sub = document.createElement("div");
             sub.className = "sub";
-            sub.textContent = "Yours until checkout";
+            sub.textContent = "Held until you pay";
             name.append(nm, sub);
             const amt = document.createElement("div");
             amt.className = "amt";
@@ -534,9 +677,10 @@ function initPick(config, balls, soldOut) {
             remove.textContent = "Remove";
             remove.setAttribute("aria-label", `Remove ball ${ballNumber(n)}`);
             remove.addEventListener("click", () => {
-                picks = picks.filter((pick) => pick !== n);
-                writePicks(picks);
-                draw();
+                void (async () => {
+                    picks = await toggleHeld(n, balls, picks);
+                    draw();
+                })();
             });
             line.append(ball, name, amt, remove);
             side.append(line);
@@ -555,7 +699,8 @@ function initPick(config, balls, soldOut) {
             next.setAttribute("aria-disabled", "true");
         const hold = document.createElement("p");
         hold.className = "fine";
-        hold.append("Picks aren't held until you pay. ", ph("Hold rule TBC"));
+        hold.dataset.holdClock = "true";
+        hold.textContent = holdClockText() || "The five minutes start when you hold your first ball.";
         side.append(tot, next, hold);
     };
     const draw = () => {
@@ -627,10 +772,14 @@ function initPick(config, balls, soldOut) {
             });
             return;
         }
-        picks = state === "mine" ? picks.filter((pick) => pick !== n) : [...picks, n];
-        writePicks(picks);
-        draw();
-        say(`Ball ${ballNumber(n)} ${state === "mine" ? "removed" : "added"}. ${picks.length} balls, ${money(picks.length * config.amountCents, config.currency)}.`);
+        const before = picks.includes(n);
+        void (async () => {
+            picks = await toggleHeld(n, balls, picks);
+            draw();
+            if (before === picks.includes(n))
+                return;
+            say(`Ball ${ballNumber(n)} ${before ? "removed" : "held"}. ${picks.length} balls, ${money(picks.length * config.amountCents, config.currency)}.`);
+        })();
     };
     if (search instanceof HTMLInputElement && found) {
         search.addEventListener("input", () => {
@@ -709,7 +858,7 @@ function initCheckout(config, balls) {
         if (config.allowBallPicking) {
             for (const n of readPicks()) {
                 const line = document.createElement("div");
-                const taken = dropped.has(n) || !isFree(balls.get(n));
+                const taken = dropped.has(n) || !stillOurs(n, balls, readPicks());
                 line.className = taken ? "line taken" : "line";
                 const ball = document.createElement("span");
                 paint(ball, n, taken ? "taken" : "mine");
@@ -728,6 +877,13 @@ function initCheckout(config, balls) {
                 line.append(ball, label, amt);
                 order.append(line);
             }
+            if (readPicks().length > 0) {
+                const clock = document.createElement("p");
+                clock.className = "fine hold-clock";
+                clock.dataset.holdClock = "true";
+                clock.textContent = holdClockText();
+                order.append(clock);
+            }
         }
         else {
             const line = document.createElement("div");
@@ -741,27 +897,34 @@ function initCheckout(config, balls) {
             line.append(label, amt);
             order.append(line);
         }
-        const kept = config.allowBallPicking ? readPicks().filter((n) => !dropped.has(n) && isFree(balls.get(n))) : [];
+        const kept = config.allowBallPicking
+            ? readPicks().filter((n) => !dropped.has(n) && stillOurs(n, balls, readPicks()))
+            : [];
         const bill = (config.allowBallPicking ? kept.length : qty) * config.amountCents;
         const total = document.querySelector("#order-total");
         if (total)
             total.textContent = money(bill, config.currency);
         if (amount)
             amount.textContent = `Pay ${money(bill, config.currency)} · test`;
-        const blocked = config.allowBallPicking && readPicks().some((n) => dropped.has(n) || !isFree(balls.get(n)));
+        const blocked = config.allowBallPicking && readPicks().some((n) => dropped.has(n) || !stillOurs(n, balls, readPicks()));
         pay.disabled = blocked || bill === 0 || config.paymentsBlocked;
         pay.classList.toggle("off", pay.disabled);
         if (alert instanceof HTMLElement) {
-            const takenNow = readPicks().filter((n) => !isFree(balls.get(n)));
+            const takenNow = readPicks().filter((n) => !stillOurs(n, balls, readPicks()));
             alert.hidden = takenNow.length === 0;
             if (takenNow.length && takenNow[0] !== undefined) {
                 const n = takenNow[0];
                 const alts = neighbours(n, balls, readPicks());
                 alert.replaceChildren();
                 const title = document.createElement("h3");
-                title.textContent = `Ball ${ballNumber(n)} was just taken`;
+                const expired = balls.get(n)?.status === "available";
+                title.textContent = expired
+                    ? `Ball ${ballNumber(n)} went back in the pit`
+                    : `Ball ${ballNumber(n)} was just taken`;
                 const copy = document.createElement("p");
-                copy.textContent = "Someone else bought it while you were checking out. You haven't been charged for anything.";
+                copy.textContent = expired
+                    ? "The five minutes ran out before checkout. Nothing was charged."
+                    : "Someone else bought it while you were checking out. You haven't been charged for anything.";
                 alert.append(title, copy);
                 if (alts.length > 0) {
                     const nearby = document.createElement("div");
@@ -782,9 +945,19 @@ function initCheckout(config, balls) {
                     swap.className = "btn red sm";
                     swap.textContent = `Swap for ${ballNumber(swapTarget)}`;
                     swap.addEventListener("click", () => {
-                        writePicks([...new Set(readPicks().map((pick) => (pick === n ? swapTarget : pick)))]);
-                        dropped = new Set();
-                        draw();
+                        const ball = balls.get(swapTarget);
+                        if (!ball)
+                            return;
+                        void (async () => {
+                            try {
+                                applyReservation(await holdReservation(ball.id), balls);
+                                dropped = new Set();
+                                draw();
+                            }
+                            catch (error) {
+                                say(error instanceof Error ? error.message : "That ball is not available.");
+                            }
+                        })();
                     });
                     actions.append(swap);
                 }
@@ -844,32 +1017,31 @@ async function submitCheckout(config, name, email, pay) {
     const recorded = [];
     try {
         if (config.allowBallPicking) {
-            const fresh = inventoryOf(await getBalls());
-            const picks = readPicks();
-            if (picks.some((n) => !isFree(fresh.get(n)))) {
+            const reservation = await getReservation();
+            const wanted = new Set(readPicks());
+            const holds = reservation.holds.filter((hold) => hold.state === "pending_payment" && wanted.has(hold.ballNumber));
+            if (holds.length === 0 || holds.length !== wanted.size) {
                 pay.disabled = false;
                 location.reload();
                 return;
             }
-            for (const n of picks) {
-                const ball = fresh.get(n);
-                if (!ball)
-                    continue;
-                const result = await buyBall({
-                    email,
-                    buyerName: name,
-                    ballId: ball.id,
-                    attestAge19: true,
-                    attestInBc: true,
-                });
+            const result = await checkoutReservation({
+                email,
+                buyerName: name,
+                ballIds: holds.map((hold) => hold.ballId),
+                attestAge19: true,
+                attestInBc: true,
+            });
+            for (const item of result.purchases) {
                 recorded.push({
-                    number: n,
+                    number: item.purchase.ball.ballNumber,
                     status: "recorded",
-                    reference: result.purchase.stripeTestReference,
-                    receiptToken: result.purchase.receiptToken,
+                    reference: item.purchase.stripeTestReference,
+                    receiptToken: item.purchase.receiptToken,
                 });
             }
             writePicks([]);
+            writeDeadline(null);
         }
         else {
             const fresh = inventoryOf(await getBalls());

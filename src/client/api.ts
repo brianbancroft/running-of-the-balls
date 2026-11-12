@@ -44,7 +44,7 @@ export type Purchase = {
 type ApiError = { error?: string };
 
 async function send<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+  const response = await fetch(url, { credentials: "same-origin", ...init });
   const payload = (await response.json()) as T & ApiError;
   if (!response.ok) throw new Error(payload.error ?? "Request failed.");
   return payload;
@@ -113,6 +113,66 @@ export function offlineSale(
 
 export function purchaseForToken(token: string): Promise<{ purchase: Purchase }> {
   return send(`/api/purchases?token=${encodeURIComponent(token)}`);
+}
+
+export type ReservationHold = {
+  id: string;
+  ballId: number;
+  ballNumber: number;
+  state: "pending_payment" | "confirmed" | "released" | "expired";
+  createdAt: string;
+  expiresAt: string;
+};
+
+export type Reservation = {
+  session: {
+    id: string;
+    status: "open" | "completed" | "expired";
+    createdAt: string;
+    expiresAt: string;
+  } | null;
+  holds: ReservationHold[];
+  hold?: ReservationHold;
+};
+
+export function getReservation(): Promise<Reservation> {
+  return send<Reservation>("/api/reservations");
+}
+
+export function holdReservation(ballId: number): Promise<Reservation> {
+  return send<Reservation>("/api/reservations", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ ballId }),
+  });
+}
+
+export function releaseReservation(ballId: number): Promise<Reservation> {
+  return send<Reservation>("/api/reservations/release", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ ballId }),
+  });
+}
+
+export function checkoutReservation(body: {
+  email: string;
+  buyerName: string;
+  ballIds: number[];
+  attestAge19: true;
+  attestInBc: true;
+}): Promise<{
+  purchases: Array<{
+    purchase: Purchase;
+    email: { sent: boolean; mode: string; preview: { subject: string; text: string } };
+  }>;
+  released: Array<{ ballId: number; ballNumber: number }>;
+}> {
+  return send("/api/reservations/checkout", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 export function selectionsFor(

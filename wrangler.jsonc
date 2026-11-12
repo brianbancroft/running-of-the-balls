@@ -44,6 +44,12 @@
   // on a real Worker. Missing values warn in local dev and must not be invented here.
   // ADMIN_EMAILS is a comma-separated list. GOOGLE_* and SESSION_SECRET turn on
   // Google sign-in. Leave them empty and the Worker keeps the admin-token path.
+  // Frees reservation holds whose five minutes have passed, even if that
+  // browser is closed and nobody else is loading the pit. API requests also
+  // sweep, so a visitor does not wait for the next minute.
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
   "secrets": {
     "required": [
       "RESEND_API_KEY",

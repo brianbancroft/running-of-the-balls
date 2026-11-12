@@ -823,6 +823,177 @@ async function writeLockedSale(
   }
 }
 
+export async function sellFromReservation(
+  db: D1Database,
+  input: {
+    holdId: string;
+    sessionId: string;
+    ballId: number;
+    email: string;
+    buyerName: string | null;
+    attestation: SaleAttestation;
+    now: string;
+  },
+  config: AppConfig,
+  origin: string,
+): Promise<ConfirmedPurchase | null> {
+  assertPaymentsAllowed(config);
+  const ball = await getBall(db, input.ballId);
+  if (!ball) throw new HttpError(404, "That ball does not exist.");
+  const purchaseId = crypto.randomUUID();
+  const selectionId = crypto.randomUUID();
+  const receiptToken = newReceiptToken();
+  let payment;
+  try {
+    payment = buildDemoPayment({
+      paymentMode: config.paymentMode,
+      stripeSecretKey: config.stripeSecretKey,
+      purchaseId,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Payment refused.";
+    throw new HttpError(403, message);
+  }
+  const plan = planEmailDelivery({
+    delivery: config.emailDelivery,
+    apiKey: config.resendApiKey,
+  });
+  const receipt = buildSelectionReceipt({
+    to: input.email,
+    from: config.emailFrom,
+    buyerName: input.buyerName,
+    ballNumber: ball.ballNumber,
+    ballLabel: ball.label,
+    purchaseId,
+    selectionId,
+    reference: payment.stripeTestReference,
+    amountCents: config.amountCents,
+    kind: "online_demo",
+    receiptUrl: receiptLink(origin, receiptToken),
+  });
+  const dispatchId = crypto.randomUUID();
+  const results = await db.batch([
+    db
+      .prepare(
+        `UPDATE ball_holds
+         SET state = 'confirmed'
+         WHERE id = ?
+           AND session_id = ?
+           AND ball_id = ?
+           AND state = 'pending_payment'
+           AND expires_at > ?`,
+      )
+      .bind(input.holdId, input.sessionId, input.ballId, input.now),
+    db
+      .prepare(
+        `INSERT INTO purchases (
+           id, buyer_email, buyer_name, status, payment_mode,
+           stripe_test_reference, offline_note, amount_cents, currency, demo_only,
+           receipt_token, attested_age_19, attested_in_bc, attested_at, attested_by,
+           attestation_text, created_at, updated_at
+         )
+         SELECT ?, ?, ?, 'demo_confirmed', 'stripe_test_fake', ?, NULL, ?, 'CAD', 1, ?, 1, 1, ?, ?, ?, ?, ?
+         WHERE changes() = 1`,
+      )
+      .bind(
+        purchaseId,
+        input.email,
+        input.buyerName,
+        payment.stripeTestReference,
+        config.amountCents,
+        receiptToken,
+        input.now,
+        input.attestation.by,
+        input.attestation.text,
+        input.now,
+        input.now,
+      ),
+    db
+      .prepare(
+        `UPDATE ball_holds
+         SET purchase_id = ?
+         WHERE id = ? AND state = 'confirmed' AND purchase_id IS NULL AND changes() = 1`,
+      )
+      .bind(purchaseId, input.holdId),
+    db
+      .prepare(
+        `UPDATE balls
+         SET status = 'sold'
+         WHERE id = ? AND status = 'selected' AND changes() = 1`,
+      )
+      .bind(input.ballId),
+    db
+      .prepare(
+        `INSERT INTO ball_selections (id, ball_id, email, purchase_id, created_at)
+         SELECT ?, ?, ?, ?, ?
+         WHERE changes() = 1`,
+      )
+      .bind(selectionId, input.ballId, input.email, purchaseId, input.now),
+    db
+      .prepare(
+        `INSERT INTO email_dispatches (
+           id, purchase_id, selection_id, ball_id, to_email, subject, text_body, html_body,
+           mode, status, idempotency_key, provider_message_id, error, created_at
+         )
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 'previewed', ?, NULL, NULL, ?
+         WHERE changes() = 1`,
+      )
+      .bind(
+        dispatchId,
+        purchaseId,
+        selectionId,
+        input.ballId,
+        input.email,
+        receipt.subject,
+        receipt.text,
+        receipt.html,
+        plan.mode,
+        receipt.idempotencyKey,
+        input.now,
+      ),
+  ]);
+  const holdUpdate = results[0];
+  const purchaseInsert = results[1];
+  const holdLink = results[2];
+  const ballUpdate = results[3];
+  const selectionInsert = results[4];
+  const dispatchInsert = results[5];
+  if (!holdUpdate || !purchaseInsert || !holdLink || !ballUpdate || !selectionInsert || !dispatchInsert) {
+    throw new HttpError(500, "Could not record the purchase.");
+  }
+  if (changed(holdUpdate) !== 1) return null;
+  if (
+    changed(purchaseInsert) !== 1 ||
+    changed(holdLink) !== 1 ||
+    changed(ballUpdate) !== 1 ||
+    changed(selectionInsert) !== 1 ||
+    changed(dispatchInsert) !== 1
+  ) {
+    if (changed(ballUpdate) === 1) {
+      await db
+        .prepare(`UPDATE balls SET status = 'selected' WHERE id = ? AND status = 'sold'`)
+        .bind(input.ballId)
+        .run();
+    }
+    await db
+      .prepare(
+        `UPDATE ball_holds
+         SET state = 'pending_payment', purchase_id = NULL
+         WHERE id = ? AND state = 'confirmed'`,
+      )
+      .bind(input.holdId)
+      .run();
+    await db.prepare(`DELETE FROM email_dispatches WHERE purchase_id = ?`).bind(purchaseId).run();
+    await db.prepare(`DELETE FROM ball_selections WHERE purchase_id = ?`).bind(purchaseId).run();
+    await db.prepare(`DELETE FROM purchases WHERE id = ?`).bind(purchaseId).run();
+    logError({ message: "reservation purchase rolled back after a partial write", ballId: input.ballId });
+    throw new HttpError(500, "Could not record the purchase.");
+  }
+  const saved = await loadPurchase(db, purchaseId);
+  if (!saved) throw new HttpError(500, "Could not record the purchase.");
+  return { purchase: toPurchase(saved), email: await finishEmail(db, saved, config, origin) };
+}
+
 export async function purchaseBall(
   db: D1Database,
   input: {

@@ -1,4 +1,5 @@
 const PICKS = "rotb-picks";
+const DEADLINE = "rotb-hold-deadline";
 const QTY = "rotb-qty";
 const PAUSED = "rotb-paused";
 const SEED = "rotb-field-seed";
@@ -36,6 +37,17 @@ export function readPicks(): number[] {
 
 export function writePicks(picks: number[]): void {
   sessionStorage.setItem(PICKS, JSON.stringify(picks));
+}
+
+export function readDeadline(): string | null {
+  const value = sessionStorage.getItem(DEADLINE);
+  if (!value || Number.isNaN(Date.parse(value))) return null;
+  return value;
+}
+
+export function writeDeadline(deadline: string | null): void {
+  if (deadline) sessionStorage.setItem(DEADLINE, deadline);
+  else sessionStorage.removeItem(DEADLINE);
 }
 
 export function readQty(): number {
