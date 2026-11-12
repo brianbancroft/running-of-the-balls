@@ -152,9 +152,9 @@ function startBoard(config, initial) {
     const counts = countsQuery;
     let balls = initial;
     let active = null;
-    let hold = null;
     let busy = false;
     let notice = null;
+    let receipt = null;
     const refreshCounts = () => {
         const open = balls.filter((ball) => ball.status === "available").length;
         const held = balls.filter((ball) => ball.status === "selected").length;
@@ -168,7 +168,7 @@ function startBoard(config, initial) {
             activeId: active?.id ?? null,
             onPick(ball) {
                 active = ball;
-                hold = null;
+                receipt = null;
                 draw();
             },
         });
@@ -182,46 +182,32 @@ function startBoard(config, initial) {
         panel.append(messageNode(`Demonstration amount ${amount}. It is not charged. Receipts are ${receiptMode}.`));
         if (notice)
             panel.append(messageNode(notice, true));
-        if (!config.allowBallPicking) {
-            const assign = actionButton("Hold the next open ball");
-            assign.disabled = busy;
-            assign.addEventListener("click", () => {
-                void submitHold(undefined);
-            });
-            panel.append(assign);
+        if (receipt) {
+            panel.append(renderReceipt(receipt.purchase, receipt.email));
+            return;
         }
-        else if (!active) {
+        const form = document.createElement("form");
+        form.className = "stack";
+        const name = textInput("text", "buyerName");
+        const email = textInput("email", "email", true);
+        const submit = actionButton(config.allowBallPicking ? "Buy this ball (no charge)" : "Buy the next open ball (no charge)");
+        submit.type = "submit";
+        submit.disabled = busy || (config.allowBallPicking && !active);
+        form.append(field("Name (optional)", name), field("Email", email), submit);
+        form.addEventListener("submit", (event) => {
+            event.preventDefault();
+            void submitBuy(config.allowBallPicking ? active?.id : undefined, name.value, email.value);
+        });
+        if (config.allowBallPicking && !active) {
             panel.append(messageNode("Choose an open ball. Shaded balls are already held or recorded."));
         }
-        else if (!hold) {
-            panel.append(messageNode(`${active.label} is open.`));
-            const form = document.createElement("form");
-            form.className = "stack";
-            const name = textInput("text", "buyerName");
-            const email = textInput("email", "email", true);
-            const submit = actionButton("Hold this ball");
-            submit.type = "submit";
-            form.append(field("Name (optional)", name), field("Email", email), submit);
-            form.addEventListener("submit", (event) => {
-                event.preventDefault();
-                void submitHold(active?.id, String(name.value), String(email.value));
-            });
-            panel.append(form);
+        else if (active) {
+            panel.append(messageNode(`${active.label} is open. Buying it locks the ball.`));
         }
         else {
-            panel.append(messageNode(`${hold.ball.label} is held for ${hold.buyerEmail}. Nothing has been charged.`));
-            const confirm = actionButton("Confirm demo record (no charge)");
-            const cancel = actionButton("Cancel hold", true);
-            confirm.disabled = busy;
-            cancel.disabled = busy;
-            confirm.addEventListener("click", () => {
-                void confirmHold();
-            });
-            cancel.addEventListener("click", () => {
-                void cancelCurrent();
-            });
-            panel.append(confirm, cancel);
+            panel.append(messageNode("Buying assigns the next open ball and locks it."));
         }
+        panel.append(form);
     };
     async function reload() {
         balls = await loadBalls();
@@ -229,86 +215,24 @@ function startBoard(config, initial) {
         const current = active ? balls.find((ball) => ball.id === active?.id) : undefined;
         active = current ?? null;
     }
-    async function submitHold(ballId, buyerName = "", email = "") {
-        if (ballId == null && config.allowBallPicking)
+    async function submitBuy(ballId, buyerName, email) {
+        if (config.allowBallPicking && ballId == null)
             return;
-        const address = email.trim();
-        if (config.allowBallPicking && address.length === 0)
-            return;
-        let typedEmail = address;
-        if (!config.allowBallPicking) {
-            const entered = window.prompt("Email for the next open ball");
-            if (!entered)
-                return;
-            typedEmail = entered;
-        }
         busy = true;
         notice = null;
         draw();
         try {
-            const payload = await postJson("/api/selections", {
-                email: typedEmail,
+            const result = await postJson("/api/purchases", {
+                email,
                 buyerName,
                 ballId,
             });
-            hold = payload.purchase;
-            active = payload.purchase.ball;
-            await reload();
-        }
-        catch (error) {
-            notice = error instanceof Error ? error.message : "Could not hold that ball.";
-        }
-        finally {
-            busy = false;
-            draw();
-        }
-    }
-    async function confirmHold() {
-        if (!hold)
-            return;
-        busy = true;
-        draw();
-        try {
-            const result = await postJson(`/api/purchases/${hold.id}/confirm-demo`, { email: hold.buyerEmail });
             await reload();
             active = null;
-            hold = null;
-            busy = false;
-            draw();
-            const receipt = document.createElement("div");
-            receipt.className = "receipt";
-            const sent = result.email.sent ? "Email was handed to Resend." : "No email was sent.";
-            receipt.append(messageNode(`${result.purchase.ball.label} is recorded. ${sent} Charged: no.`), messageNode(result.email.reason ?? result.email.preview.subject));
-            const pre = document.createElement("pre");
-            pre.textContent = result.email.preview.text;
-            const purchases = document.createElement("a");
-            purchases.href = `/purchase?email=${encodeURIComponent(result.purchase.buyerEmail)}`;
-            purchases.textContent = "View purchases for this email";
-            const selections = document.createElement("a");
-            selections.href = `/selections?email=${encodeURIComponent(result.purchase.buyerEmail)}`;
-            selections.textContent = "View the email and ball record";
-            receipt.append(pre, purchases, document.createElement("br"), selections);
-            panel.append(receipt);
+            receipt = result;
         }
         catch (error) {
-            busy = false;
-            draw();
-            panel.append(messageNode(error instanceof Error ? error.message : "Could not confirm.", true));
-        }
-    }
-    async function cancelCurrent() {
-        if (!hold)
-            return;
-        busy = true;
-        draw();
-        try {
-            await postJson(`/api/purchases/${hold.id}/cancel`, { email: hold.buyerEmail });
-            hold = null;
-            active = null;
-            await reload();
-        }
-        catch (error) {
-            panel.append(messageNode(error instanceof Error ? error.message : "Could not cancel.", true));
+            notice = error instanceof Error ? error.message : "Could not buy that ball.";
         }
         finally {
             busy = false;
@@ -316,6 +240,35 @@ function startBoard(config, initial) {
         }
     }
     draw();
+}
+function renderReceipt(purchase, email) {
+    const box = document.createElement("div");
+    box.className = "receipt";
+    const sent = email.sent ? "Email was handed to Resend." : "The receipt was stored. No email was sent.";
+    box.append(messageNode(`${purchase.ball.label} is ${purchaseWord(purchase.status).toLowerCase()}. ${sent} Charged: no.`), messageNode(email.reason ?? email.preview.subject));
+    const pre = document.createElement("pre");
+    pre.textContent = email.preview.text;
+    const purchases = document.createElement("a");
+    purchases.href = `/purchase?email=${encodeURIComponent(purchase.buyerEmail)}`;
+    purchases.textContent = "View purchases for this email";
+    const selections = document.createElement("a");
+    selections.href = `/selections?email=${encodeURIComponent(purchase.buyerEmail)}`;
+    selections.textContent = "View the email and ball record";
+    box.append(pre, purchases, document.createElement("br"), selections);
+    return box;
+}
+function purchaseCard(purchase) {
+    const card = document.createElement("article");
+    card.className = "record";
+    const title = document.createElement("h3");
+    title.textContent = purchase.ball.label;
+    const receiptLine = purchase.emailRecord
+        ? `Receipt “${purchase.emailRecord.subject}” — ${purchase.emailRecord.sent ? "sent" : "stored, not sent"}.`
+        : "No receipt stored for this row.";
+    card.append(title, messageNode(`${purchaseWord(purchase.status)} · ${paymentWord(purchase.paymentMode)}`), messageNode(`Amount on the record: ${money(purchase.amountCents, purchase.currency)}. Charged: no.`), messageNode(receiptLine), messageNode(purchase.stripeTestReference
+        ? `Local reference: ${purchase.stripeTestReference}`
+        : purchase.offlineNote ?? "No Stripe reference."));
+    return card;
 }
 function lookupForm(onSearch, preset) {
     const form = document.createElement("form");
@@ -350,12 +303,7 @@ function startPurchases() {
                 return;
             }
             for (const purchase of payload.purchases) {
-                const card = document.createElement("article");
-                card.className = "record";
-                const title = document.createElement("h3");
-                title.textContent = purchase.ball.label;
-                card.append(title, messageNode(`${purchaseWord(purchase.status)} · ${paymentWord(purchase.paymentMode)}`), messageNode(`Amount on the record: ${money(purchase.amountCents, purchase.currency)}. Charged: no.`), messageNode(purchase.stripeTestReference ? `Local reference: ${purchase.stripeTestReference}` : purchase.offlineNote ?? "No Stripe reference."));
-                results.append(card);
+                results.append(purchaseCard(purchase));
             }
         }
         catch (error) {
@@ -388,7 +336,10 @@ function startSelections() {
                 card.className = "record";
                 const title = document.createElement("h3");
                 title.textContent = `${selection.email} → ${selection.label}`;
-                card.append(title, messageNode(`Ball status: ${statusWord(selection.ballStatus)}. Purchase: ${purchaseWord(selection.purchaseStatus)}.`), messageNode(`Record ${selection.id}`));
+                const receiptLine = selection.emailRecord
+                    ? `Receipt “${selection.emailRecord.subject}” — ${selection.emailRecord.sent ? "sent" : "stored, not sent"}.`
+                    : "No receipt stored for this selection.";
+                card.append(title, messageNode(`Ball status: ${statusWord(selection.ballStatus)}. Purchase: ${purchaseWord(selection.purchaseStatus)}.`), messageNode(receiptLine));
                 results.append(card);
             }
         }

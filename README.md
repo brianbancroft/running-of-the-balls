@@ -8,10 +8,10 @@ This repository is a local demonstration scaffold. It is not a live gaming site,
 
 Four flows share one Worker, one D1 database, and the static pages in `public/`:
 
-1. **Purchase engine.** The home board lets a buyer hold a specific ball when picking is on, then confirm a demo record. Confirmation writes a fake Stripe test reference and does not call Stripe.
-2. **Customer purchase view.** `/purchase.html` looks up demo purchases for one email.
-3. **Email and ball records.** `/selections.html` lists the stored link between that email and each ball they selected, including cancelled holds.
-4. **Admin offline sales.** `/admin.html` records a club-table ball as an offline demo sale. It requires `ADMIN_TOKEN` and still does not collect money.
+1. **Purchase engine.** On `/`, a buyer picks a specific open ball, enters a name and email, and buys it in one step. The ball locks to sold inside one D1 batch, so a second buy of that ball is rejected. The purchase stores a fake Stripe test reference and does not call Stripe.
+2. **Customer purchase view.** After the buy, the same panel lists that email’s purchases and their status. `/purchase` looks them up again by email.
+3. **Email and ball records.** Every buy writes `ball_selections` (email plus ball) and `email_dispatches` (the receipt subject and body, beside that ball). `/selections` shows both. With no `RESEND_API_KEY`, or while `EMAIL_DELIVERY` is `dry_run`, the row is still stored and nothing is sent.
+4. **Admin offline sales.** `/admin` lets an administrator pick a ball for a name and email. It uses the same lock, purchase row, and email-and-ball row as an online buy, with `payment_mode` `offline_demo`. The request needs `Authorization: Bearer` matching `ADMIN_TOKEN`.
 
 Held and sold balls are shaded on the scrolling marquee and on the board. Open balls can be picked when `ALLOW_BALL_PICKING` is `true`.
 
@@ -38,6 +38,19 @@ Open `http://localhost:8787`.
 
 `npm run check` regenerates binding types, typechecks the Worker, client, and tests, checks dependency licenses, and runs the Workers Vitest suite. No Cloudflare account, remote database, or API key is required.
 
+### Try each flow
+
+1. **Buy a ball.** On `/`, click an open ball, enter an email, and choose “Buy this ball (no charge)”. The ball turns sold. Buying it again returns a conflict. Nothing is charged.
+2. **See purchases.** The panel lists that email’s purchases after the buy. Open `/purchase?email=you@example.com` to look them up again, including status.
+3. **See the email record.** Open `/selections?email=you@example.com`. Each row is that email plus the ball, and the stored receipt subject. The receipt is in D1 even when Resend is not called.
+4. **Record an offline sale.** Set `ADMIN_TOKEN` in `.dev.vars`, restart `wrangler dev`, open `/admin`, enter the token, pick an open ball, and submit a name and email. That ball locks the same way.
+
+```bash
+curl -s -X POST http://127.0.0.1:8787/api/purchases \
+  -H 'content-type: application/json' \
+  -d '{"email":"buyer@example.com","buyerName":"Ada","ballId":12}'
+```
+
 To try offline sales, copy the example env file and set a token only on your machine:
 
 ```bash
@@ -56,7 +69,8 @@ The D1 `database_id` in `wrangler.jsonc` is a local placeholder. It does not cre
 | `wrangler.jsonc` | Worker config, assets, D1 binding, non-secret vars, secret names |
 | `src/index.ts` | Worker entry |
 | `src/app.ts` | Hono routes for the four flows |
-| `src/purchase-engine.ts` | Holds, demo confirm, cancel, offline sales, purchase and selection queries |
+| `src/purchase-engine.ts` | Buy, hold, confirm, offline sale, and the email-and-ball queries |
+| `migrations/0003_email_records.sql` | Stores receipt subject and body on the email row, with the ball id |
 | `src/email/deliver.ts` | Dry-run by default; Resend only when delivery is switched on and a key exists |
 | `src/payments/stripe-test.ts` | Fake test-mode reference. No Stripe HTTP call |
 | `src/client/app.ts` | Browser UI, compiled to `public/app.js` |
@@ -74,8 +88,9 @@ API routes:
 
 | Route | Flow |
 | --- | --- |
-| `POST /api/selections` | Purchase engine: hold a ball and store the email-and-ball row |
-| `POST /api/purchases/:id/confirm-demo` | Purchase engine: confirm without charging, then the email hook |
+| `POST /api/purchases` | Purchase engine: buy a specific ball, lock it, store the receipt |
+| `POST /api/selections` | Optional hold. The ball locks as selected until confirm or cancel |
+| `POST /api/purchases/:id/confirm-demo` | Confirm a hold without charging, then the email hook |
 | `POST /api/purchases/:id/cancel` | Release a hold. The email-and-ball row stays |
 | `GET /api/purchases?email=` | Customer purchase view |
 | `GET /api/selections?email=` | Email-and-ball records for that address |
