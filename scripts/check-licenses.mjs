@@ -182,7 +182,18 @@ for (const pkg of directPackages) {
   lines.push("");
 }
 
-writeFileSync(path.join(root, "THIRD_PARTY_LICENSES.md"), `${lines.join("\n")}\n`);
+const record = `${lines.join("\n")}\n`;
+const recordPath = path.join(root, "THIRD_PARTY_LICENSES.md");
+const checkOnly = process.argv.includes("--check");
+if (checkOnly) {
+  const current = existsSync(recordPath) ? readFileSync(recordPath, "utf8") : "";
+  if (current !== record) {
+    console.error("THIRD_PARTY_LICENSES.md is out of date. Run npm run licenses and commit the result.");
+    process.exit(1);
+  }
+} else {
+  writeFileSync(recordPath, record);
+}
 
 if (rejected.length > 0) {
   console.error("License policy failed:");
@@ -192,4 +203,6 @@ if (rejected.length > 0) {
   process.exit(1);
 }
 
-console.log(`Recorded ${packages.length} packages (${directPackages.length} direct) in THIRD_PARTY_LICENSES.md`);
+console.log(
+  `${checkOnly ? "Checked" : "Recorded"} ${packages.length} packages (${directPackages.length} direct) in THIRD_PARTY_LICENSES.md`,
+);

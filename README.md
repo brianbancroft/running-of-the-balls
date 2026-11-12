@@ -36,7 +36,7 @@ npm run dev
 
 Open `http://localhost:8787`.
 
-`npm run check` regenerates binding types, typechecks the Worker, client, and tests, checks dependency licenses, and runs the Workers Vitest suite. No Cloudflare account, remote database, or API key is required.
+`npm run check` regenerates binding types, typechecks the Worker, client, and tests, checks dependency licenses, and runs the Workers Vitest suite. No Cloudflare account, remote database, or API key is required. `npm run licenses -- --check` does that license check without rewriting `THIRD_PARTY_LICENSES.md`. A push to `main` runs install, typecheck, tests, and that check on a free GitHub-hosted runner (`.github/workflows/ci.yml`).
 
 ### Try each flow
 
@@ -181,6 +181,6 @@ Those marks are trademarks of Kin Canada and the Kinsmen Club of Ladysmith. They
 
 ### Dependency licenses
 
-Direct dependencies must be OSI-approved and commercially usable in an open-source app on Workers. Preferred licenses are MIT, Apache-2.0, BSD, and ISC. Do not add AGPL, SSPL, Commons Clause, Business Source, non-commercial, or other terms that conflict with this MIT distribution or with running the app as a Worker. `npm run licenses` rewrites `THIRD_PARTY_LICENSES.md` and fails if a package falls outside that policy.
+Direct dependencies must be OSI-approved and commercially usable in an open-source app on Workers. Preferred licenses are MIT, Apache-2.0, BSD, and ISC. Do not add AGPL, SSPL, Commons Clause, Business Source, non-commercial, or other terms that conflict with this MIT distribution or with running the app as a Worker. `npm run licenses` rewrites `THIRD_PARTY_LICENSES.md` and fails if a package falls outside that policy. `npm run licenses -- --check` fails on the same policy, and also when the recorded file would change, without writing it.
 
 Buyer email in a real send would also need the club’s identification and a current postal address. The dry-run receipt names Ladysmith, British Columbia, and says no further demo messages are sent. It is a preview, not a mailing.
