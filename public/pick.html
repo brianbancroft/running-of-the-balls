@@ -12,9 +12,9 @@
 </head>
 <body data-page="pick">
   <div id="live" class="sr-only" aria-live="polite"></div>
-  <div class="ribbon"><span class="pill">Demo</span> Payments run in Stripe test mode — no real charges. Prices, ball counts and prizes shown are placeholders.</div>
+  <div class="ribbon"><span class="pill">Demo</span> Payments run in Stripe test mode — no real charges. Prices and prizes shown are placeholders.</div>
   <header class="site-head">
-    <a class="wordmark" href="/"><span class="k">Ladysmith Kinsmen</span><span class="n">Running of <em>the Balls</em></span></a>
+    <a class="brand" href="/"><img class="logo" src="/marks/kinsmen-club-of-ladysmith-trim.png" alt="Kinsmen Club of Ladysmith"><span class="wordmark"><span class="n">Running of <em>the Balls</em></span></span></a>
     <nav>
       <a href="/#how">How it works</a>
       <a href="/#prizes">Prizes</a>
@@ -35,14 +35,13 @@
               <span class="lab">No.</span>
               <input id="find" inputmode="numeric" aria-label="Find a ball by number" style="border:0;font:inherit;width:8ch;font-weight:700">
             </label>
-            <p class="found" id="found">Find a number from 001 to 1000.</p>
+            <p class="found" id="found">Find a ball by its number.</p>
             <label class="toggle">Hide sold <input id="hide-sold" type="checkbox"></label>
           </div>
           <div class="ranges" id="ranges"></div>
           <div class="grid" id="grid"></div>
           <div class="gridfoot">
             <span id="range-count"></span>
-            <span class="ph">Placeholder count</span>
           </div>
         </div>
         <p class="fine">Keyboard: arrow keys move between balls. Enter or Space picks or un-picks. Sold balls are skipped for picking but still announced.</p>

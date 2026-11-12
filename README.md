@@ -13,7 +13,7 @@ Four flows share one Worker, one D1 database, and the static pages in `public/`:
 3. **Email and ball records.** Every buy writes `ball_selections` (email plus ball) and `email_dispatches` (the receipt subject and body, beside that ball). `/selections` shows both. With no `RESEND_API_KEY`, or while `EMAIL_DELIVERY` is `dry_run`, the row is still stored and nothing is sent.
 4. **Admin offline sales.** `/admin` lets an administrator pick a ball for a name and email. It uses the same lock, purchase row, and email-and-ball row as an online buy, with `payment_mode` `offline_demo`. The page prefers a Google sign-in whose email is listed in `ADMIN_EMAILS`. `Authorization: Bearer` matching `ADMIN_TOKEN` still authorizes the admin API. Buyers do not sign in with Google to purchase a ball.
 
-Held and sold balls are shaded on the scrolling marquee and on the board. Open balls can be picked when `ALLOW_BALL_PICKING` is `true`.
+Held and sold balls are shaded on the scrolling marquee and on the board. Open balls can be picked when `ALLOW_BALL_PICKING` is `true`. The catalogue is 2,500 balls. A buyer can take as many as remain free. Price, prizes, and whether a buyer picks a number or is assigned one are still undecided.
 
 ## Stack
 
@@ -74,7 +74,7 @@ This is what Brian would provide before a hosted demo. It is not done here.
 4. A Google Cloud OAuth web client, only if admin sign-in should be on. Register both callback URLs: `http://localhost:8787/api/auth/google/callback` for local `wrangler dev`, and `https://balls.bancroft.io/api/auth/google/callback` for the future demo host. Also register the JavaScript origins `http://localhost:8787` and `https://balls.bancroft.io`. Put the client id, client secret, and a long random `SESSION_SECRET` in the secrets above. If those values are missing, `/api/auth/google` answers 503 and `/admin` keeps the token field. This repository does not create the Google client, deploy the Worker, or change DNS.
 5. DNS for `balls.bancroft.io`, on the Cloudflare zone Brian already controls, pointing at this Worker. Do not buy a domain for this demo. The callback URL above is documentation for that future host. Nothing here points DNS at it.
 6. The appropriate British Columbia charitable gaming licence before any real money is taken. Until then the hosted copy stays a demonstration: test markers, no live charge, placeholder prices and prizes.
-7. Written permission before any official Kin Canada or Kinsmen Club of Ladysmith mark is added. The repo currently uses a text wordmark only.
+7. Official Kin Canada and Kinsmen Club of Ladysmith marks are in `public/marks/` for this demo. Permission to use them here is granted. They are trademarks of Kin Canada and the Kinsmen Club of Ladysmith and are not covered by the MIT license.
 
 ## Project layout
 
@@ -146,7 +146,9 @@ The Workers runtime (`workerd`) is Apache-2.0. Using the hosted Cloudflare servi
 
 ### Brand marks
 
-Official Kin Canada and Kinsmen Club of Ladysmith logos and lockups are not in this repository. Permission to use them on this open-source demo is still pending. The interface uses the Kin red and navy colour tokens and a text wordmark only.
+Permission to use the official Kin Canada and Kinsmen Club of Ladysmith marks on this open-source demo is granted. The header uses `public/marks/kinsmen-club-of-ladysmith-trim.png` on white. The navy footer uses `public/marks/kin-canada-emblem.png` and credits Ladysmith Kinsmen / Kin Canada.
+
+Those marks are trademarks of Kin Canada and the Kinsmen Club of Ladysmith. They are not licensed under the MIT license that covers the rest of this repository. Do not treat the MIT grant as permission to reuse the marks.
 
 ### Dependency licenses
 

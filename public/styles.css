@@ -21,7 +21,7 @@ button{font:inherit;cursor:pointer}
 .ribbon{background:var(--navy);color:#DCE3E8;font-size:13.5px;height:34px;display:flex;align-items:center;justify-content:center;gap:10px;letter-spacing:.01em}
 .ribbon .pill{background:var(--test);color:var(--test-ink);font-weight:800;font-size:11px;letter-spacing:.09em;padding:2px 8px;border-radius:99px;text-transform:uppercase}
 .site-head{height:84px;display:flex;align-items:center;gap:40px;padding:0 64px;background:#fff;border-bottom:1px solid var(--border);position:relative;z-index:3}
-.site-head .logo{height:50px;display:block}
+.site-head .logo{height:50px;width:auto;display:block}
 .site-head nav{display:flex;gap:30px;margin-left:auto;font-weight:600;font-size:16px;color:var(--muted)}
 .site-head nav a{text-decoration:none}
 .site-head nav a.on{color:var(--ink);box-shadow:inset 0 -2px 0 var(--kin);padding-bottom:4px}
@@ -172,8 +172,8 @@ button{font:inherit;cursor:pointer}
 .toggle{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:15px;font-weight:600;color:var(--muted)}
 .switch{width:44px;height:26px;border-radius:99px;background:#D8D1CA;position:relative}
 .switch:after{content:"";position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3)}
-.ranges{display:flex;gap:6px;padding:16px 26px;border-bottom:1px solid var(--border);overflow:hidden}
-.rg{flex:1;text-align:center;border-radius:12px;padding:8px 0 7px;font-size:14.5px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums;line-height:1.2}
+.ranges{display:flex;gap:6px;padding:16px 26px;border-bottom:1px solid var(--border);overflow-x:auto}
+.rg{flex:0 0 auto;min-width:78px;text-align:center;border-radius:12px;padding:8px 8px 7px;font-size:14.5px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums;line-height:1.2}
 .rg small{display:block;font-weight:600;font-size:12px;color:var(--light)}
 .rg.on{background:var(--navy);color:#fff}.rg.on small{color:#AEBBC4}
 .grid{display:grid;grid-template-columns:repeat(10,var(--s));gap:20px 21px;justify-content:center;padding:34px 26px 38px;--s:64px;position:relative}
@@ -311,11 +311,10 @@ button{font:inherit;cursor:pointer}
 button.ball{appearance:none;color:inherit}
 .ball:focus-visible{outline:3px solid var(--navy);outline-offset:5px}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.brand{display:flex;align-items:center;gap:14px;min-width:0;text-decoration:none}
 .wordmark{display:flex;flex-direction:column;gap:3px;text-decoration:none;line-height:1;min-width:0}
-.wordmark .k{font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--kin)}
 .wordmark .n{font-family:var(--display);font-weight:800;font-size:22px;letter-spacing:-.03em;font-variation-settings:"wdth" 85,"opsz" 96;color:var(--ink)}
 .wordmark em{font-style:normal;color:var(--kin)}
-.logo-slot{width:72px;height:72px;border:1px dashed rgba(255,255,255,.35);border-radius:18px}
 .hero.tray-open .legend{top:72px;bottom:auto}
 .field.pickable .ball.available:hover{transform:scale(1.1) translateY(-3px)}
 @keyframes nogo{
