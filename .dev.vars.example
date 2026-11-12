@@ -1,0 +1,17 @@
+# Copy this file to .dev.vars for local `wrangler dev`.
+# .dev.vars is gitignored. Never commit real keys.
+#
+# EMAIL_DELIVERY in wrangler.jsonc is "dry_run", so a Resend key is not used
+# unless that var is changed on purpose. Leave RESEND_API_KEY empty to be sure
+# nothing is sent.
+#
+# Stripe stays in fake test mode. The Worker does not call Stripe. Do not put
+# live keys (sk_live_, rk_live_, pk_live_) here. Placeholders below are not keys.
+
+RESEND_API_KEY=
+STRIPE_SECRET_KEY=sk_test_placeholder_not_a_real_key
+STRIPE_PUBLISHABLE_KEY=pk_test_placeholder_not_a_real_key
+
+# Set a local-only token to try admin offline sales. Do not reuse it anywhere
+# else, and do not deploy this demo with a guessable token.
+ADMIN_TOKEN=

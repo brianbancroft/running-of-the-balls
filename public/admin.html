@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Running of the Balls — offline sales</title>
+  <meta name="description" content="Record an offline demonstration sale. No payment is processed.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body data-view="admin">
+  <a class="skip" href="#admin-panel">Skip to offline sales</a>
+  <p class="demo-banner">Demonstration only. Nothing is charged. This is not a licensed gaming event.</p>
+  <div class="sky" id="marquee" aria-hidden="true"></div>
+  <div class="shell">
+    <nav class="nav" aria-label="Demo flows">
+      <a href="/">Purchase</a>
+      <a href="/purchase">Your purchases</a>
+      <a href="/selections">Email and ball</a>
+      <a href="/admin" aria-current="page">Offline sales</a>
+    </nav>
+    <header class="masthead">
+      <p class="kicker">Admin · offline demo sales</p>
+      <h1>Record a club-table ball</h1>
+      <p class="lede">Mark an available ball as recorded for someone who chose it away from this screen. This does not take cash, card, or any other payment.</p>
+    </header>
+    <main class="layout with-panel">
+      <section class="card">
+        <h2>Available balls</h2>
+        <div id="board" class="board"></div>
+      </section>
+      <aside class="card panel">
+        <h2>Offline record</h2>
+        <div id="admin-panel"><p>Loading…</p></div>
+      </aside>
+    </main>
+    <section class="card" style="margin-top:1rem">
+      <h2>Recent demo records</h2>
+      <div id="admin-list" class="records"></div>
+    </section>
+    <footer class="site-footer">
+      <p>The admin token stays in this tab until you reload. It is not a payment credential. Set it only in <code>.dev.vars</code> or with Wrangler secrets.</p>
+    </footer>
+  </div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

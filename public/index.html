@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Running of the Balls — purchase demo</title>
+  <meta name="description" content="Demonstration purchase board for the Ladysmith Kinsmen Running of the Balls. No real charges. Not a licensed gaming event.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body data-view="board">
+  <a class="skip" href="#board">Skip to the ball board</a>
+  <p class="demo-banner">Demonstration only. Nothing is charged. This is not a licensed gaming event.</p>
+  <div class="sky" id="marquee" aria-hidden="true"></div>
+  <div class="shell">
+    <nav class="nav" aria-label="Demo flows">
+      <a href="/" aria-current="page">Purchase</a>
+      <a href="/purchase">Your purchases</a>
+      <a href="/selections">Email and ball</a>
+      <a href="/admin">Offline sales</a>
+    </nav>
+    <header class="masthead">
+      <p class="kicker">Ladysmith Kinsmen</p>
+      <h1>Running of the Balls</h1>
+      <p class="lede">Hold a numbered ball on the board. Confirming it writes a demo record only. No draw is run and no payment is taken.</p>
+    </header>
+    <main class="layout with-panel">
+      <section class="card" aria-labelledby="board-title">
+        <div class="section-head">
+          <h2 id="board-title">Ball board</h2>
+          <p id="counts"></p>
+        </div>
+        <div id="board" class="board"></div>
+      </section>
+      <aside class="card panel" aria-live="polite">
+        <h2>Purchase</h2>
+        <div id="panel"><p>Loading the ball board…</p></div>
+      </aside>
+    </main>
+    <footer class="site-footer">
+      <p>Held and sold balls are shaded. Sold means a demo record, not money collected by this app.</p>
+      <p>A live Kinsmen event needs the appropriate British Columbia charitable gaming licence before any real money is taken. This page is not that licence and it is not legal advice.</p>
+    </footer>
+  </div>
+  <noscript><p class="demo-banner">This demonstration board needs JavaScript to load ball status.</p></noscript>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

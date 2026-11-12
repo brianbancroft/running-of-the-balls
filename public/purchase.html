@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Running of the Balls — your purchases</title>
+  <meta name="description" content="Look up demonstration purchases for an email address. No real charges.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body data-view="purchases">
+  <a class="skip" href="#lookup">Skip to purchase lookup</a>
+  <p class="demo-banner">Demonstration only. Nothing is charged. This is not a licensed gaming event.</p>
+  <div class="sky" id="marquee" aria-hidden="true"></div>
+  <div class="shell">
+    <nav class="nav" aria-label="Demo flows">
+      <a href="/">Purchase</a>
+      <a href="/purchase" aria-current="page">Your purchases</a>
+      <a href="/selections">Email and ball</a>
+      <a href="/admin">Offline sales</a>
+    </nav>
+    <header class="masthead">
+      <p class="kicker">Customer purchase view</p>
+      <h1>Your demo purchases</h1>
+      <p class="lede">Enter the email used on a hold or offline record. This is a lookup for the demo, not an account login.</p>
+    </header>
+    <main class="card" id="lookup" style="margin-top:1rem">
+      <div id="panel"></div>
+      <div id="results" class="records"></div>
+    </main>
+    <footer class="site-footer">
+      <p>Every row is a demonstration record. The amount is a placeholder. The app did not collect it.</p>
+    </footer>
+  </div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

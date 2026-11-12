@@ -1,0 +1,207 @@
+import { Hono } from "hono";
+import { assertAdmin } from "./auth";
+import { DISCLAIMER, readConfig } from "./config";
+import { HttpError, isMissingSchema, isRecord } from "./http";
+import { logError, logInfo } from "./log";
+import {
+  cancelHold,
+  confirmDemoPurchase,
+  holdBall,
+  listBalls,
+  listPurchasesForEmail,
+  listRecentSales,
+  listSelectionsForEmail,
+  recordOfflineSale,
+} from "./purchase-engine";
+import { parseEmail, parseName, parseNote, parseOptionalBallId, parsePurchaseId } from "./validation";
+
+const app = new Hono<{ Bindings: CloudflareBindings }>();
+
+app.use("*", async (c, next) => {
+  const started = Date.now();
+  try {
+    await next();
+  } finally {
+    logInfo({
+      message: "request",
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      status: c.res.status,
+      durationMs: Date.now() - started,
+    });
+  }
+});
+
+app.use("/api/*", async (c, next) => {
+  await next();
+  c.header("Cache-Control", "no-store");
+  c.header("X-Content-Type-Options", "nosniff");
+  c.header("Referrer-Policy", "no-referrer");
+});
+
+app.get("/api/health", (c) => {
+  return c.json({
+    ok: true,
+    demo: true,
+    paymentMode: c.env.PAYMENT_MODE,
+    emailDelivery: c.env.EMAIL_DELIVERY,
+  });
+});
+
+app.get("/api/config", (c) => {
+  const config = readConfig(c.env);
+  return c.json({
+    appName: config.appName,
+    demoMode: config.demoMode,
+    allowBallPicking: config.allowBallPicking,
+    paymentMode: config.paymentMode,
+    emailDelivery: config.emailDelivery,
+    amountCents: config.amountCents,
+    currency: config.currency,
+    charged: false,
+    offlineSalesConfigured: Boolean(config.adminToken),
+    paymentsBlocked: Boolean(config.paymentsBlockedReason),
+    disclaimer: DISCLAIMER,
+  });
+});
+
+app.get("/api/balls", async (c) => {
+  const balls = await listBalls(c.env.DB);
+  return c.json({ balls });
+});
+
+app.post("/api/selections", async (c) => {
+  const config = readConfig(c.env);
+  const body = await readJsonObject(c);
+  const purchase = await holdBall(
+    c.env.DB,
+    {
+      email: parseEmail(body.email),
+      buyerName: parseName(body.buyerName),
+      ballId: parseOptionalBallId(body.ballId),
+    },
+    config,
+  );
+  logInfo({
+    message: "ball held",
+    purchaseId: purchase.id,
+    ballId: purchase.ball.id,
+    charged: false,
+  });
+  return c.json({ purchase }, 201);
+});
+
+app.post("/api/purchases/:id/confirm-demo", async (c) => {
+  const config = readConfig(c.env);
+  const purchaseId = parsePurchaseId(c.req.param("id"));
+  const body = await readJsonObject(c);
+  const email = parseEmail(body.email);
+  const result = await confirmDemoPurchase(c.env.DB, purchaseId, email, config);
+  logInfo({
+    message: "demo purchase confirmed",
+    purchaseId,
+    ballId: result.purchase.ball.id,
+    charged: false,
+    emailDelivery: result.email.mode,
+    emailSent: result.email.sent,
+  });
+  return c.json(result);
+});
+
+app.post("/api/purchases/:id/cancel", async (c) => {
+  const purchaseId = parsePurchaseId(c.req.param("id"));
+  const body = await readJsonObject(c);
+  const purchase = await cancelHold(c.env.DB, purchaseId, parseEmail(body.email));
+  logInfo({ message: "hold cancelled", purchaseId, ballId: purchase.ball.id });
+  return c.json({ purchase });
+});
+
+app.get("/api/purchases", async (c) => {
+  const email = parseEmail(c.req.query("email"));
+  const purchases = await listPurchasesForEmail(c.env.DB, email);
+  return c.json({ email, purchases });
+});
+
+app.get("/api/selections", async (c) => {
+  const email = parseEmail(c.req.query("email"));
+  const selections = await listSelectionsForEmail(c.env.DB, email);
+  return c.json({ email, selections });
+});
+
+app.post("/api/admin/offline-sales", async (c) => {
+  const config = readConfig(c.env);
+  assertAdmin(config, c.req.header("authorization"));
+  const body = await readJsonObject(c);
+  const ballId = parseOptionalBallId(body.ballId);
+  if (ballId == null) throw new HttpError(400, "Choose a ball.");
+  const result = await recordOfflineSale(
+    c.env.DB,
+    {
+      email: parseEmail(body.email),
+      buyerName: parseName(body.buyerName),
+      ballId,
+      note: parseNote(body.note),
+    },
+    config,
+  );
+  logInfo({
+    message: "offline demo sale recorded",
+    purchaseId: result.purchase.id,
+    ballId: result.purchase.ball.id,
+    charged: false,
+    emailSent: result.email.sent,
+  });
+  return c.json(result, 201);
+});
+
+app.get("/api/admin/sales", async (c) => {
+  const config = readConfig(c.env);
+  assertAdmin(config, c.req.header("authorization"));
+  const purchases = await listRecentSales(c.env.DB);
+  return c.json({ purchases });
+});
+
+app.all("*", async (c) => {
+  if (c.req.path.startsWith("/api/") || (c.req.method !== "GET" && c.req.method !== "HEAD")) {
+    return c.json({ error: "Not found" }, 404);
+  }
+  return c.env.ASSETS.fetch(c.req.raw);
+});
+
+app.onError((error, c) => {
+  if (isMissingSchema(error)) {
+    logError({ message: "database schema missing", error: error.message });
+    return c.json(
+      { error: "Local database is not migrated. Run npm run d1:migrate:local." },
+      503,
+    );
+  }
+  if (error instanceof HttpError) {
+    logError({ message: "request rejected", status: error.status, error: error.message });
+    return c.json({ error: error.message }, error.status);
+  }
+  logError({
+    message: "request failed",
+    error: error instanceof Error ? error.message : "unknown",
+  });
+  return c.json({ error: "Something went wrong." }, 500);
+});
+
+async function readJsonObject(c: {
+  req: { header: (name: string) => string | undefined; json: () => Promise<unknown> };
+}): Promise<Record<string, unknown>> {
+  const declared = Number(c.req.header("content-length") ?? "0");
+  if (Number.isFinite(declared) && declared > 20_000) {
+    throw new HttpError(413, "Body is too large.");
+  }
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    throw new HttpError(400, "Expected a JSON body.");
+  }
+  if (!isRecord(body)) throw new HttpError(400, "Expected a JSON object.");
+  return body;
+}
+
+export default app;

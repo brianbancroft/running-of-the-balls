@@ -1,0 +1,54 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "running-of-the-balls",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-11",
+  // Resend's SDK uses Node-style APIs. nodejs_compat is the supported Workers flag for that.
+  "compatibility_flags": ["nodejs_compat"],
+  "upload_source_maps": true,
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.01
+    }
+  },
+  // Static UI and the API ship in one Worker. /api/* runs the Worker first.
+  // HTML, CSS, and the compiled client are Workers static assets.
+  // purchase.html, selections.html, and admin.html are also served at
+  // /purchase, /selections, and /admin.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "vars": {
+    "DEMO_MODE": "true",
+    "ALLOW_BALL_PICKING": "true",
+    "EMAIL_DELIVERY": "dry_run",
+    "PAYMENT_MODE": "stripe_test_fake",
+    "DEMO_AMOUNT_CENTS": "2000",
+    "EMAIL_FROM": "Running of the Balls Demo <onboarding@resend.dev>",
+    "PUBLIC_APP_NAME": "Ladysmith Kinsmen Running of the Balls"
+  },
+  // Names only. Values come from .dev.vars locally or `wrangler secret put`
+  // on a real Worker. Missing values warn in local dev and must not be invented here.
+  "secrets": {
+    "required": ["RESEND_API_KEY", "STRIPE_SECRET_KEY", "ADMIN_TOKEN"]
+  },
+  // database_id is a local placeholder. It does not provision a remote D1
+  // database. Replace it with the id from `wrangler d1 create` only when a
+  // real deployment is intended. Do not create or deploy as part of setup.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "running-of-the-balls",
+      "database_id": "00000000-0000-0000-0000-000000000001",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

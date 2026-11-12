@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Running of the Balls — email and ball</title>
+  <meta name="description" content="Records that tie a buyer email to the ball they selected. Demonstration only.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body data-view="selections">
+  <a class="skip" href="#lookup">Skip to the email lookup</a>
+  <p class="demo-banner">Demonstration only. Nothing is charged. This is not a licensed gaming event.</p>
+  <div class="sky" id="marquee" aria-hidden="true"></div>
+  <div class="shell">
+    <nav class="nav" aria-label="Demo flows">
+      <a href="/">Purchase</a>
+      <a href="/purchase">Your purchases</a>
+      <a href="/selections" aria-current="page">Email and ball</a>
+      <a href="/admin">Offline sales</a>
+    </nav>
+    <header class="masthead">
+      <p class="kicker">Email and ball records</p>
+      <h1>Which ball this email selected</h1>
+      <p class="lede">Each row is the stored link between an email address and one ball. Cancelled holds stay here. No other addresses are listed.</p>
+    </header>
+    <main class="card" id="lookup" style="margin-top:1rem">
+      <div id="panel"></div>
+      <div id="results" class="records"></div>
+    </main>
+    <footer class="site-footer">
+      <p>These records are the demo’s buyer-to-ball list. They are not tickets and they are not draw entries.</p>
+    </footer>
+  </div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

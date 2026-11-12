@@ -1,0 +1,33 @@
+{
+  "name": "running-of-the-balls",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Demonstration scaffold for the Ladysmith Kinsmen Running of the Balls fundraiser. No real charges. Not licensed for live play.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "npm run build:client && wrangler dev",
+    "build:client": "tsc -p tsconfig.client.json",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+    "d1:migrate:local": "wrangler d1 migrations apply running-of-the-balls --local",
+    "typecheck": "wrangler types --env-interface CloudflareBindings && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit && tsc -p test/tsconfig.json --noEmit",
+    "licenses": "node scripts/check-licenses.mjs",
+    "test": "vitest run",
+    "check": "npm run licenses && npm run build:client && npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "hono": "^4.13.18",
+    "resend": "^6.38.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.8.0",
+    "@cloudflare/workers-types": "^5.20261112.1",
+    "@types/node": "^26.6.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.12",
+    "wrangler": "^4.160.1"
+  }
+}
