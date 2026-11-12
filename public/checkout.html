@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
   <title>Check out · Running of the Balls</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -36,8 +37,8 @@
     <div class="panel">
       <h2>Your details</h2>
       <p class="fine">Used to show your receipt. <span class="ph">Email use TBC</span></p>
-      <div class="fld"><label for="buyer-name">Name</label><input class="in" id="buyer-name" name="name" autocomplete="name" placeholder="Your name"></div>
-      <div class="fld"><label for="buyer-email">Email</label><input class="in" id="buyer-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required></div>
+      <div class="fld"><label for="buyer-name">Name</label><input class="in" id="buyer-name" name="name" autocomplete="name" maxlength="80" placeholder="Your name"></div>
+      <div class="fld"><label for="buyer-email">Email</label><input class="in" id="buyer-email" name="email" type="email" autocomplete="email" maxlength="254" placeholder="you@example.com" required></div>
       <div class="pay">
         <div class="hd"><span class="tag">Test</span> Payment <span class="by">Stripe · test mode</span></div>
         <div class="fld">

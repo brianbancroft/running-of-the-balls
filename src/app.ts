@@ -10,13 +10,20 @@ import {
   confirmDemoPurchase,
   holdBall,
   listBalls,
-  listPurchasesForEmail,
   listRecentSales,
   listSelectionsForEmail,
   purchaseBall,
+  purchaseForReceiptToken,
   recordOfflineSale,
 } from "./purchase-engine";
-import { parseEmail, parseName, parseNote, parseOptionalBallId, parsePurchaseId } from "./validation";
+import {
+  parseEmail,
+  parseName,
+  parseNote,
+  parseOptionalBallId,
+  parsePurchaseId,
+  parseReceiptToken,
+} from "./validation";
 
 const app = new Hono<{ Bindings: CloudflareBindings }>();
 
@@ -127,6 +134,7 @@ app.post("/api/purchases", async (c) => {
       ballId: parseOptionalBallId(body.ballId),
     },
     config,
+    originOf(c),
   );
   logInfo({
     message: "demo ball purchased",
@@ -143,7 +151,7 @@ app.post("/api/purchases/:id/confirm-demo", async (c) => {
   const purchaseId = parsePurchaseId(c.req.param("id"));
   const body = await readJsonObject(c);
   const email = parseEmail(body.email);
-  const result = await confirmDemoPurchase(c.env.DB, purchaseId, email, config);
+  const result = await confirmDemoPurchase(c.env.DB, purchaseId, email, config, originOf(c));
   logInfo({
     message: "demo purchase confirmed",
     purchaseId,
@@ -164,15 +172,15 @@ app.post("/api/purchases/:id/cancel", async (c) => {
 });
 
 app.get("/api/purchases", async (c) => {
-  const email = parseEmail(c.req.query("email"));
-  const purchases = await listPurchasesForEmail(c.env.DB, email);
-  return c.json({ email, purchases });
+  const token = parseReceiptToken(c.req.query("token"));
+  const purchase = await purchaseForReceiptToken(c.env.DB, token);
+  if (!purchase) throw new HttpError(404, "That receipt link was not found.");
+  return c.json({ purchase });
 });
 
 app.get("/api/selections", async (c) => {
-  const email = parseEmail(c.req.query("email"));
-  const selections = await listSelectionsForEmail(c.env.DB, email);
-  return c.json({ email, selections });
+  await assertAdmin(readConfig(c.env), c.req.header("authorization"), c.req.header("cookie"));
+  return selectionsForAdmin(c);
 });
 
 app.use("/api/admin/*", async (c, next) => {
@@ -194,6 +202,7 @@ app.post("/api/admin/offline-sales", async (c) => {
       note: parseNote(body.note),
     },
     config,
+    originOf(c),
   );
   logInfo({
     message: "offline demo sale recorded",
@@ -210,11 +219,17 @@ app.get("/api/admin/sales", async (c) => {
   return c.json({ purchases });
 });
 
+app.get("/api/admin/selections", async (c) => selectionsForAdmin(c));
+
 app.all("*", async (c) => {
   if (c.req.path.startsWith("/api/") || (c.req.method !== "GET" && c.req.method !== "HEAD")) {
     return c.json({ error: "Not found" }, 404);
   }
-  return c.env.ASSETS.fetch(c.req.raw);
+  const asset = await c.env.ASSETS.fetch(c.req.raw);
+  const headers = new Headers(asset.headers);
+  headers.set("Referrer-Policy", "no-referrer");
+  headers.set("X-Content-Type-Options", "nosniff");
+  return new Response(asset.body, { status: asset.status, statusText: asset.statusText, headers });
 });
 
 app.onError((error, c) => {
@@ -235,6 +250,20 @@ app.onError((error, c) => {
   });
   return c.json({ error: "Something went wrong." }, 500);
 });
+
+function originOf(c: { req: { url: string } }): string {
+  return new URL(c.req.url).origin;
+}
+
+async function selectionsForAdmin(c: {
+  req: { query: (name: string) => string | undefined };
+  env: CloudflareBindings;
+  json: (body: unknown) => Response;
+}): Promise<Response> {
+  const email = parseEmail(c.req.query("email"));
+  const selections = await listSelectionsForEmail(c.env.DB, email);
+  return c.json({ email, selections });
+}
 
 async function readJsonObject(c: {
   req: { header: (name: string) => string | undefined; json: () => Promise<unknown> };

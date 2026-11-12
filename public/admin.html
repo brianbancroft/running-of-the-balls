@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
   <title>Offline sales · Running of the Balls</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -32,9 +33,9 @@
         <summary>Use an admin token instead</summary>
         <label>Admin token <input name="token" type="password" autocomplete="current-password" required></label>
       </details>
-      <label>Email <input name="email" type="email" required></label>
-      <label>Name <input name="name" autocomplete="name"></label>
-      <label>Ball number <input id="admin-ball" name="ball" inputmode="numeric" required></label>
+      <label for="admin-email">Email <input id="admin-email" name="email" type="email" maxlength="254" required></label>
+      <label for="admin-name">Name <input id="admin-name" name="name" autocomplete="name" maxlength="80"></label>
+      <label for="admin-ball">Ball number <input id="admin-ball" name="ball" inputmode="numeric" required></label>
       <label>Note <textarea name="note" maxlength="200" placeholder="Recorded at the club table in the demo."></textarea></label>
       <button class="btn red" type="submit">Record offline demo sale</button>
       <p id="admin-status" class="fine"></p>

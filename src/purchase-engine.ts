@@ -2,7 +2,7 @@ import type { AppConfig } from "./config";
 import { assertPaymentsAllowed } from "./config";
 import type { EmailDeliveryResult } from "./email/deliver";
 import { planEmailDelivery, previewResult, sendSelectionReceipt } from "./email/deliver";
-import { buildSelectionReceipt } from "./email/receipt";
+import { buildSelectionReceipt, receiptLink } from "./email/receipt";
 import { HttpError } from "./http";
 import { logError } from "./log";
 import { buildDemoPayment } from "./payments/stripe-test";
@@ -30,6 +30,7 @@ export type PurchaseRecord = {
   offlineNote: string | null;
   buyerEmail: string;
   buyerName: string | null;
+  receiptToken: string;
   selectionId: string;
   ball: Ball;
   emailRecord: StoredEmail | null;
@@ -47,6 +48,7 @@ export type SelectionRecord = {
   ballStatus: BallStatus;
   purchaseId: string;
   purchaseStatus: PurchaseStatus;
+  receiptToken: string;
   emailRecord: StoredEmail | null;
   createdAt: string;
 };
@@ -54,6 +56,7 @@ export type SelectionRecord = {
 export type StoredEmail = {
   id: string;
   subject: string;
+  text: string | null;
   status: "previewed" | "sent" | "failed";
   sent: boolean;
   mode: "dry_run" | "resend";
@@ -79,6 +82,7 @@ type JoinedRow = {
   currency: "CAD";
   purchase_created_at: string;
   purchase_updated_at: string;
+  receipt_token: string;
   selection_id: string;
   selection_email: string;
   selection_created_at: string;
@@ -91,6 +95,7 @@ type JoinedRow = {
   email_subject: string | null;
   email_status: "previewed" | "sent" | "failed" | null;
   email_mode: "dry_run" | "resend" | null;
+  email_text: string | null;
 };
 
 type DispatchRow = {
@@ -115,6 +120,7 @@ const JOINED = `
     p.currency,
     p.created_at AS purchase_created_at,
     p.updated_at AS purchase_updated_at,
+    p.receipt_token,
     s.id AS selection_id,
     s.email AS selection_email,
     s.created_at AS selection_created_at,
@@ -146,7 +152,13 @@ const JOINED = `
       WHERE d.selection_id = s.id
       ORDER BY d.created_at DESC
       LIMIT 1
-    ) AS email_mode
+    ) AS email_mode,
+    (
+      SELECT d.text_body FROM email_dispatches d
+      WHERE d.selection_id = s.id
+      ORDER BY d.created_at DESC
+      LIMIT 1
+    ) AS email_text
   FROM purchases p
   JOIN ball_selections s ON s.purchase_id = p.id
   JOIN balls b ON b.id = s.ball_id
@@ -171,6 +183,7 @@ function emailFromRow(row: JoinedRow): StoredEmail | null {
   return {
     id: row.email_id,
     subject: row.email_subject ?? "",
+    text: row.email_text,
     status: row.email_status,
     sent: row.email_status === "sent",
     mode: row.email_mode,
@@ -199,6 +212,7 @@ export function toPurchase(row: JoinedRow): PurchaseRecord {
     offlineNote: row.offline_note,
     buyerEmail: row.buyer_email,
     buyerName: row.buyer_name,
+    receiptToken: row.receipt_token,
     selectionId: row.selection_id,
     ball: ballFromJoined(row),
     emailRecord: emailFromRow(row),
@@ -218,31 +232,43 @@ export function toSelection(row: JoinedRow): SelectionRecord {
     ballStatus: row.ball_status,
     purchaseId: row.purchase_id,
     purchaseStatus: row.purchase_status,
+    receiptToken: row.receipt_token,
     emailRecord: emailFromRow(row),
     createdAt: row.selection_created_at,
   };
 }
 
-export async function listBalls(db: D1Database): Promise<Ball[]> {
+export async function listBalls(
+  db: D1Database,
+): Promise<Array<Pick<Ball, "id" | "ballNumber" | "status">>> {
   const result = await db
     .prepare(
-      `SELECT id, ball_number, label, color, status
+      `SELECT id, ball_number, status
        FROM balls
        ORDER BY ball_number ASC`,
     )
-    .all<BallRow>();
-  return result.results.map(mapBall);
+    .all<Pick<BallRow, "id" | "ball_number" | "status">>();
+  return result.results.map((row) => ({
+    id: row.id,
+    ballNumber: row.ball_number,
+    status: row.status,
+  }));
 }
 
-export async function listPurchasesForEmail(
+export function newReceiptToken(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  let hex = "";
+  for (const byte of bytes) hex += byte.toString(16).padStart(2, "0");
+  return hex;
+}
+
+export async function purchaseForReceiptToken(
   db: D1Database,
-  email: string,
-): Promise<PurchaseRecord[]> {
-  const result = await db
-    .prepare(`${JOINED} WHERE p.buyer_email = ? ORDER BY p.created_at DESC`)
-    .bind(email)
-    .all<JoinedRow>();
-  return result.results.map(toPurchase);
+  token: string,
+): Promise<PurchaseRecord | null> {
+  const row = await db.prepare(`${JOINED} WHERE p.receipt_token = ?`).bind(token).first<JoinedRow>();
+  return row ? toPurchase(row) : null;
 }
 
 export async function listSelectionsForEmail(
@@ -309,6 +335,7 @@ async function tryHold(
 ): Promise<PurchaseRecord | null> {
   const purchaseId = crypto.randomUUID();
   const selectionId = crypto.randomUUID();
+  const receiptToken = newReceiptToken();
   const now = new Date().toISOString();
   const results = await db.batch([
     db
@@ -319,12 +346,12 @@ async function tryHold(
         `INSERT INTO purchases (
            id, buyer_email, buyer_name, status, payment_mode,
            stripe_test_reference, offline_note, amount_cents, currency, demo_only,
-           created_at, updated_at
+           receipt_token, created_at, updated_at
          )
-         SELECT ?, ?, ?, 'demo_pending', 'stripe_test_fake', NULL, NULL, ?, 'CAD', 1, ?, ?
+         SELECT ?, ?, ?, 'demo_pending', 'stripe_test_fake', NULL, NULL, ?, 'CAD', 1, ?, ?, ?
          WHERE changes() = 1`,
       )
-      .bind(purchaseId, input.email, input.buyerName, config.amountCents, now, now),
+      .bind(purchaseId, input.email, input.buyerName, config.amountCents, receiptToken, now, now),
     db
       .prepare(
         `INSERT INTO ball_selections (id, ball_id, email, purchase_id, created_at)
@@ -371,7 +398,7 @@ export async function holdBall(
   throw new HttpError(409, "Every ball is already held or recorded.");
 }
 
-function receiptFor(row: JoinedRow, config: AppConfig) {
+function receiptFor(row: JoinedRow, config: AppConfig, origin: string) {
   const reference =
     row.stripe_test_reference ??
     (row.payment_mode === "offline_demo" ? "offline demo record" : "demo record");
@@ -386,6 +413,7 @@ function receiptFor(row: JoinedRow, config: AppConfig) {
     reference,
     amountCents: row.amount_cents,
     kind: row.payment_mode === "offline_demo" ? "offline_demo" : "online_demo",
+    receiptUrl: receiptLink(origin, row.receipt_token),
   });
 }
 
@@ -426,8 +454,9 @@ async function finishEmail(
   db: D1Database,
   row: JoinedRow,
   config: AppConfig,
+  origin: string,
 ): Promise<EmailDeliveryResult> {
-  const receipt = receiptFor(row, config);
+  const receipt = receiptFor(row, config, origin);
   const plan = planEmailDelivery({
     delivery: config.emailDelivery,
     apiKey: config.resendApiKey,
@@ -473,6 +502,7 @@ export async function confirmDemoPurchase(
   purchaseId: string,
   email: string,
   config: AppConfig,
+  origin: string,
 ): Promise<ConfirmedPurchase> {
   assertPaymentsAllowed(config);
   const current = await requireOwnedPurchase(db, purchaseId, email);
@@ -480,7 +510,7 @@ export async function confirmDemoPurchase(
     throw new HttpError(409, "This hold was cancelled.");
   }
   if (current.purchase_status === "demo_confirmed") {
-    return { purchase: toPurchase(current), email: await finishEmail(db, current, config) };
+    return { purchase: toPurchase(current), email: await finishEmail(db, current, config, origin) };
   }
   if (current.ball_status !== "selected" || current.payment_mode !== "stripe_test_fake") {
     throw new HttpError(409, "This hold cannot be confirmed.");
@@ -513,6 +543,7 @@ export async function confirmDemoPurchase(
     reference: payment.stripeTestReference,
     amountCents: current.amount_cents,
     kind: "online_demo",
+    receiptUrl: receiptLink(origin, current.receipt_token),
   });
   const now = new Date().toISOString();
   const dispatchId = crypto.randomUUID();
@@ -580,7 +611,7 @@ export async function confirmDemoPurchase(
   if (changed(purchaseUpdate) !== 1) {
     const again = await requireOwnedPurchase(db, purchaseId, email);
     if (again.purchase_status === "demo_confirmed") {
-      return { purchase: toPurchase(again), email: await finishEmail(db, again, config) };
+      return { purchase: toPurchase(again), email: await finishEmail(db, again, config, origin) };
     }
     throw new HttpError(409, "This hold cannot be confirmed.");
   }
@@ -590,7 +621,7 @@ export async function confirmDemoPurchase(
   }
   const saved = await loadPurchase(db, purchaseId);
   if (!saved) throw new HttpError(500, "Could not confirm this hold.");
-  return { purchase: toPurchase(saved), email: await finishEmail(db, saved, config) };
+  return { purchase: toPurchase(saved), email: await finishEmail(db, saved, config, origin) };
 }
 
 export async function cancelHold(
@@ -653,6 +684,7 @@ async function writeLockedSale(
     amountCents: number;
     purchaseId: string;
     selectionId: string;
+    receiptToken: string;
     receipt: ReturnType<typeof buildSelectionReceipt>;
     dispatchMode: "dry_run" | "resend";
   },
@@ -668,9 +700,9 @@ async function writeLockedSale(
         `INSERT INTO purchases (
            id, buyer_email, buyer_name, status, payment_mode,
            stripe_test_reference, offline_note, amount_cents, currency, demo_only,
-           created_at, updated_at
+           receipt_token, created_at, updated_at
          )
-         SELECT ?, ?, ?, 'demo_confirmed', ?, ?, ?, ?, 'CAD', 1, ?, ?
+         SELECT ?, ?, ?, 'demo_confirmed', ?, ?, ?, ?, 'CAD', 1, ?, ?, ?
          WHERE changes() = 1`,
       )
       .bind(
@@ -681,6 +713,7 @@ async function writeLockedSale(
         input.stripeTestReference,
         input.offlineNote,
         input.amountCents,
+        input.receiptToken,
         now,
         now,
       ),
@@ -742,6 +775,7 @@ export async function purchaseBall(
   db: D1Database,
   input: { email: string; buyerName: string | null; ballId: number | undefined },
   config: AppConfig,
+  origin: string,
 ): Promise<ConfirmedPurchase> {
   assertPaymentsAllowed(config);
   const attempts = config.allowBallPicking ? 1 : 3;
@@ -756,6 +790,7 @@ export async function purchaseBall(
     }
     const purchaseId = crypto.randomUUID();
     const selectionId = crypto.randomUUID();
+    const receiptToken = newReceiptToken();
     let payment;
     try {
       payment = buildDemoPayment({
@@ -782,6 +817,7 @@ export async function purchaseBall(
       reference: payment.stripeTestReference,
       amountCents: config.amountCents,
       kind: "online_demo",
+      receiptUrl: receiptLink(origin, receiptToken),
     });
     try {
       await writeLockedSale(db, {
@@ -794,6 +830,7 @@ export async function purchaseBall(
         amountCents: config.amountCents,
         purchaseId,
         selectionId,
+        receiptToken,
         receipt,
         dispatchMode: plan.mode,
       });
@@ -803,7 +840,7 @@ export async function purchaseBall(
     }
     const saved = await loadPurchase(db, purchaseId);
     if (!saved) throw new HttpError(500, "Could not record the purchase.");
-    return { purchase: toPurchase(saved), email: await finishEmail(db, saved, config) };
+    return { purchase: toPurchase(saved), email: await finishEmail(db, saved, config, origin) };
   }
   throw new HttpError(409, "Every ball is already held or recorded.");
 }
@@ -812,6 +849,7 @@ export async function recordOfflineSale(
   db: D1Database,
   input: { email: string; buyerName: string | null; ballId: number; note: string },
   config: AppConfig,
+  origin: string,
 ): Promise<ConfirmedPurchase> {
   assertPaymentsAllowed(config);
   const ball = await getBall(db, input.ballId);
@@ -823,6 +861,7 @@ export async function recordOfflineSale(
 
   const purchaseId = crypto.randomUUID();
   const selectionId = crypto.randomUUID();
+  const receiptToken = newReceiptToken();
   const plan = planEmailDelivery({
     delivery: config.emailDelivery,
     apiKey: config.resendApiKey,
@@ -838,6 +877,7 @@ export async function recordOfflineSale(
     reference: "offline demo record",
     amountCents: config.amountCents,
     kind: "offline_demo",
+    receiptUrl: receiptLink(origin, receiptToken),
   });
   await writeLockedSale(db, {
     ballId: input.ballId,
@@ -849,10 +889,11 @@ export async function recordOfflineSale(
     amountCents: config.amountCents,
     purchaseId,
     selectionId,
+    receiptToken,
     receipt,
     dispatchMode: plan.mode,
   });
   const saved = await loadPurchase(db, purchaseId);
   if (!saved) throw new HttpError(500, "Could not record the offline demo sale.");
-  return { purchase: toPurchase(saved), email: await finishEmail(db, saved, config) };
+  return { purchase: toPurchase(saved), email: await finishEmail(db, saved, config, origin) };
 }

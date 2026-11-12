@@ -26,6 +26,11 @@ function money(cents: number): string {
   }).format(cents / 100);
 }
 
+export function receiptLink(origin: string, token: string): string {
+  const base = origin.endsWith("/") ? origin.slice(0, -1) : origin;
+  return `${base}/purchase?token=${token}`;
+}
+
 export function buildSelectionReceipt(input: {
   to: string;
   from: string;
@@ -37,6 +42,7 @@ export function buildSelectionReceipt(input: {
   reference: string;
   amountCents: number;
   kind: "online_demo" | "offline_demo";
+  receiptUrl: string;
 }): SelectionReceipt {
   const ballNumber = input.ballNumber;
   const subject =
@@ -61,6 +67,7 @@ export function buildSelectionReceipt(input: {
     `Demonstration amount shown on the record: ${amount}`,
     `Local reference: ${input.reference}`,
     `Selection: ${input.selectionId}`,
+    `Your receipt: ${input.receiptUrl}`,
     "",
     "No further messages will be sent by this demo.",
   ].join("\n");
@@ -91,6 +98,9 @@ export function buildSelectionReceipt(input: {
           </tr>
           <tr>
             <td style="padding:0 24px 16px;font-size:16px;line-height:1.5;">Demonstration amount on the record: ${escapeHtml(amount)}<br>Local reference: ${escapeHtml(input.reference)}</td>
+          </tr>
+          <tr>
+            <td style="padding:0 24px 16px;font-size:16px;line-height:1.5;"><a href="${escapeHtml(input.receiptUrl)}">Open your receipt</a></td>
           </tr>
           <tr>
             <td style="padding:0 24px 24px;font-size:14px;line-height:1.5;">Ladysmith Kinsmen, Ladysmith, British Columbia, Canada. No further messages will be sent by this demo.</td>

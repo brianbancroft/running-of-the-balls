@@ -8,12 +8,12 @@ This repository is a local demonstration scaffold. It is not a live gaming site,
 
 Four flows share one Worker, one D1 database, and the static pages in `public/`:
 
-1. **Purchase engine.** On `/`, a buyer picks a specific open ball, enters a name and email, and buys it in one step. The ball locks to sold inside one D1 batch, so a second buy of that ball is rejected. The purchase stores a fake Stripe test reference and does not call Stripe.
-2. **Customer purchase view.** After the buy, the same panel lists that email’s purchases and their status. `/purchase` looks them up again by email.
-3. **Email and ball records.** Every buy writes `ball_selections` (email plus ball) and `email_dispatches` (the receipt subject and body, beside that ball). `/selections` shows both. With no `RESEND_API_KEY`, or while `EMAIL_DELIVERY` is `dry_run`, the row is still stored and nothing is sent.
-4. **Admin offline sales.** `/admin` lets an administrator pick a ball for a name and email. It uses the same lock, purchase row, and email-and-ball row as an online buy, with `payment_mode` `offline_demo`. The page prefers a Google sign-in whose email is listed in `ADMIN_EMAILS`. `Authorization: Bearer` matching `ADMIN_TOKEN` still authorizes the admin API. Buyers do not sign in with Google to purchase a ball.
+1. **Purchase engine.** On `/`, a buyer picks a specific open ball, enters a name and email, and buys it in one step. The ball locks to sold inside one D1 batch, so a second buy of that ball is rejected. The same buyer can check out as many open balls as they want. The purchase stores a fake Stripe test reference and does not call Stripe. Each purchase gets an unguessable receipt token.
+2. **Customer purchase view.** Checkout returns that token and puts it in the receipt. `/purchase?token=` opens that one purchase. Typing someone else's email does not list their balls or the stored receipt.
+3. **Email and ball records.** Every buy writes `ball_selections` (email plus ball) and `email_dispatches` (the receipt subject and body, beside that ball). With no `RESEND_API_KEY`, or while `EMAIL_DELIVERY` is `dry_run`, the row is still stored and nothing is sent. `/selections` shows those rows, including the receipt text, and only for an admin.
+4. **Admin offline sales.** `/admin` lets an administrator pick a ball for a name and email. It uses the same lock, purchase row, receipt token, and email-and-ball row as an online buy, with `payment_mode` `offline_demo`. The page prefers a Google sign-in whose email is listed in `ADMIN_EMAILS`. `Authorization: Bearer` matching `ADMIN_TOKEN` still authorizes the admin API. Buyers do not sign in with Google to purchase a ball.
 
-Held and sold balls are shaded on the scrolling marquee and on the board. Open balls can be picked when `ALLOW_BALL_PICKING` is `true`. The catalogue is 2,500 balls. A buyer can take as many as remain free. Price, prizes, and whether a buyer picks a number or is assigned one are still undecided.
+The catalogue is 2,500 balls, numbered from 1. That numbering is still a placeholder. Held and sold balls are shaded on the scrolling marquee and on the board. The marquee draws a sample, and the picker shows one block of 100 at a time. Open balls can be picked when `ALLOW_BALL_PICKING` is `true`. A buyer can take as many balls as remain free. Price, prizes, bundles, and whether a buyer picks a number or is assigned one are still undecided. The page describes a fundraiser for the Kinsmen Club of Ladysmith for an upcoming infrastructure project.
 
 ## Stack
 
@@ -40,10 +40,10 @@ Open `http://localhost:8787`.
 
 ### Try each flow
 
-1. **Buy a ball.** On `/`, click a bright ball in the marquee (or open `/pick`). Continue to checkout, enter an email, and choose the test pay button. The card fields are disabled placeholders. The ball locks. Buying it again returns a conflict. Nothing is charged. Set `ALLOW_BALL_PICKING` to `false` and restart to try the quantity stepper instead.
-2. **See purchases.** After checkout, the test receipt links to `/purchase?email=you@example.com`, which lists that email’s balls and status.
-3. **See the email record.** Open `/selections?email=you@example.com`. Each row is that email plus the ball, and the stored receipt subject. The receipt is in D1 even when Resend is not called.
-4. **Record an offline sale.** Either set `ADMIN_TOKEN` in `.dev.vars` and enter it on `/admin`, or set `ADMIN_EMAILS` plus the Google sign-in secrets below and sign in with a listed account. Enter a free ball number and a name and email. That ball locks the same way. A buyer can still check out with only the email on the purchase form.
+1. **Buy a ball.** On `/`, click a bright ball in the marquee (or open `/pick`). Arrow keys move between balls. Continue to checkout, enter an email, and choose the test pay button. The card fields are disabled placeholders. The ball locks. Buying it again returns a conflict. Nothing is charged. The confirmation page links to a receipt for each ball. Set `ALLOW_BALL_PICKING` to `false` and restart to try the quantity field instead. It has no cap other than how many balls are still free.
+2. **See a purchase.** Open the receipt link from checkout, or paste it on `/purchase`. A seeded sample, which is public demo data already in the migrations, is `/purchase?token=390822ccb06855179424236c3774f960118070866e3030acb0808837a6ca55d3` (ball 3). That link does not reveal the other seeded purchases.
+3. **See the email record.** The buyer's receipt link includes the stored receipt text. `/selections` lists every email-and-ball row for an address, including that text, and asks for the same admin sign-in as offline sales. The receipt stays in D1 even when Resend is not called.
+4. **Record an offline sale.** Either set `ADMIN_TOKEN` in `.dev.vars` and enter it on `/admin`, or set `ADMIN_EMAILS` plus the Google sign-in secrets below and sign in with a listed account. Enter a free ball number and a name and email. That ball locks the same way as an online buy, including when both are attempted together. A buyer can still check out with only the email on the purchase form.
 
 ```bash
 curl -s -X POST http://127.0.0.1:8787/api/purchases \
@@ -96,11 +96,13 @@ This is what Brian would provide before a hosted demo. It is not done here.
 | `public/checkout.html` | Stripe test-mode checkout |
 | `public/confirmation.html` | Test receipt |
 | `public/styles.css` | Kin red / navy tokens and ball states |
-| `public/purchase.html` | Customer purchase view |
-| `public/selections.html` | Email-and-ball records |
+| `public/purchase.html` | One purchase, opened with its receipt token |
+| `public/selections.html` | Admin email-and-ball records |
 | `public/admin.html` | Offline demo sales |
 | `migrations/0001_init.sql` | D1 schema |
 | `migrations/0002_seed.sql` | Sample balls, including held, sold, and one offline record |
+| `migrations/0005_catalogue_2500.sql` | Extends the demo catalogue from 1,000 balls to 2,500 |
+| `migrations/0005_receipt_tokens.sql` | Unguessable receipt token on each purchase, including seeded fixtures |
 | `.dev.vars.example` | Secret names only. Placeholders are not keys |
 | `THIRD_PARTY_LICENSES.md` | Recorded dependency licenses |
 | `LICENSE` | MIT |
@@ -113,8 +115,10 @@ API routes:
 | `POST /api/selections` | Optional hold. The ball locks as selected until confirm or cancel |
 | `POST /api/purchases/:id/confirm-demo` | Confirm a hold without charging, then the email hook |
 | `POST /api/purchases/:id/cancel` | Release a hold. The email-and-ball row stays |
-| `GET /api/purchases?email=` | Customer purchase view |
-| `GET /api/selections?email=` | Email-and-ball records for that address |
+| `GET /api/balls` | Ball id, number, and status for the 2,500-ball catalogue. No buyer email |
+| `GET /api/purchases?token=` | One purchase for that receipt token. Email is not a lookup |
+| `GET /api/selections?email=` | Email-and-ball records, admin only. Same data as the route below |
+| `GET /api/admin/selections?email=` | Email-and-ball records for an admin, including receipt text |
 | `GET /api/auth/session` | Current Google session, if any. Does not require sign-in |
 | `GET /api/auth/google` | Start Google sign-in. 503 when the client is not configured |
 | `GET /api/auth/google/callback` | Google redirects here. Local: `http://localhost:8787/api/auth/google/callback`. Future host: `https://balls.bancroft.io/api/auth/google/callback` |

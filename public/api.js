@@ -35,9 +35,15 @@ export function offlineSale(body, token) {
         body: JSON.stringify(body),
     });
 }
-export function purchasesFor(email) {
-    return send(`/api/purchases?email=${encodeURIComponent(email)}`);
+export function purchaseForToken(token) {
+    return send(`/api/purchases?token=${encodeURIComponent(token)}`);
 }
-export function selectionsFor(email) {
-    return send(`/api/selections?email=${encodeURIComponent(email)}`);
+export function selectionsFor(email, token) {
+    const headers = { accept: "application/json" };
+    if (token.trim())
+        headers.authorization = `Bearer ${token}`;
+    return send(`/api/admin/selections?email=${encodeURIComponent(email)}`, {
+        credentials: "same-origin",
+        headers,
+    });
 }

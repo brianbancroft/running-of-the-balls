@@ -4,13 +4,14 @@ import {
   getConfig,
   getSession,
   offlineSale,
-  purchasesFor,
+  purchaseForToken,
   selectionsFor,
   type Ball,
   type Config,
+  type Purchase,
   type Session,
 } from "./api.js";
-import { ballColour, ballNumber, money } from "./format.js";
+import { ballColour, ballNumber, marqueeNumbers, money } from "./format.js";
 import {
   readBuyer,
   readPaused,
@@ -43,7 +44,7 @@ function visualFor(n: number, balls: Map<number, Ball>, picks: number[], taken =
   return "available";
 }
 
-function paint(node: HTMLElement, n: number, state: Visual): void {
+function paint(node: HTMLElement, n: number, state: Visual, status?: Ball["status"]): void {
   const colour = ballColour(n);
   node.className = `ball ${state}`;
   node.style.setProperty("--c", colour.c);
@@ -60,7 +61,14 @@ function paint(node: HTMLElement, n: number, state: Visual): void {
     node.append(yours);
   }
   if (node instanceof HTMLButtonElement) {
-    const label = state === "mine" ? "yours" : state === "taken" ? "just taken" : state;
+    const label =
+      state === "mine"
+        ? "yours"
+        : state === "taken"
+          ? "just taken"
+          : state === "sold" && status === "selected"
+            ? "held"
+            : state;
     node.setAttribute("aria-label", `Ball ${ballNumber(n)}, ${label}`);
     node.setAttribute("aria-pressed", state === "mine" ? "true" : "false");
     if (state === "sold" || state === "taken") node.setAttribute("aria-disabled", "true");
@@ -73,39 +81,24 @@ function say(text: string): void {
   if (live) live.textContent = text;
 }
 
-function rng(seed: number): () => number {
-  let state = seed >>> 0;
-  return () => {
-    state = (Math.imul(1664525, state) + 1013904223) >>> 0;
-    return state / 4294967296;
-  };
-}
-
-function shuffle(max: number, seed: number): number[] {
-  const items = Array.from({ length: max }, (_, index) => index + 1);
-  const random = rng(seed);
-  for (let index = items.length - 1; index > 0; index -= 1) {
-    const swap = Math.floor(random() * (index + 1));
-    const left = items[index];
-    const right = items[swap];
-    if (left === undefined || right === undefined) continue;
-    items[index] = right;
-    items[swap] = left;
-  }
-  return items;
+function highestBall(balls: Map<number, Ball>): number {
+  let max = 0;
+  for (const n of balls.keys()) if (n > max) max = n;
+  return max;
 }
 
 function renderMarquee(
   root: HTMLElement,
   balls: Map<number, Ball>,
   picks: number[],
-  max: number,
   soldAll: boolean,
+  pickable: boolean,
 ): void {
   root.replaceChildren();
-  const sample = shuffle(max, fieldSeed());
   const per = 26;
   const rows = 12;
+  const sample = marqueeNumbers([...balls.values()], rows * per, fieldSeed());
+  let tabStopPlaced = false;
   for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
     const row = document.createElement("div");
     row.className = rowIndex % 2 === 0 ? "row" : "row back";
@@ -114,12 +107,21 @@ function renderMarquee(
     row.style.setProperty("--rest", `${-10 - ((rowIndex * 13) % 36)}%`);
     const slice = sample.slice(rowIndex * per, rowIndex * per + per);
     for (let copy = 0; copy < 2; copy += 1) {
-      for (const n of slice) {
-        const span = document.createElement("span");
-        span.dataset.n = String(n);
-        paint(span, n, soldAll ? "sold" : visualFor(n, balls, picks));
-        row.append(span);
-      }
+      slice.forEach((n, col) => {
+        const node = pickable && copy === 0 ? document.createElement("button") : document.createElement("span");
+        node.dataset.n = String(n);
+        if (node instanceof HTMLButtonElement) {
+          node.type = "button";
+          node.dataset.row = String(rowIndex);
+          node.dataset.col = String(col);
+          node.tabIndex = tabStopPlaced ? -1 : 0;
+          tabStopPlaced = true;
+        } else if (copy === 1) {
+          node.setAttribute("aria-hidden", "true");
+        }
+        paint(node, n, soldAll ? "sold" : visualFor(n, balls, picks), balls.get(n)?.status);
+        row.append(node);
+      });
     }
     root.append(row);
   }
@@ -128,14 +130,8 @@ function renderMarquee(
 function patchMarquee(root: HTMLElement, balls: Map<number, Ball>, picks: number[]): void {
   for (const node of root.querySelectorAll<HTMLElement>("[data-n]")) {
     const n = Number(node.dataset.n);
-    paint(node, n, visualFor(n, balls, picks));
+    paint(node, n, visualFor(n, balls, picks), balls.get(n)?.status);
   }
-}
-
-function highestBall(balls: Map<number, Ball>): number {
-  let max = 0;
-  for (const n of balls.keys()) if (n > max) max = n;
-  return max;
 }
 
 function neighbours(n: number, balls: Map<number, Ball>, picks: number[]): number[] {
@@ -168,7 +164,7 @@ async function boot(): Promise<void> {
   if (page === "checkout") initCheckout(config, balls);
   if (page === "confirmation") initConfirmation(config);
   if (page === "purchase") await initPurchase();
-  if (page === "selections") initSelections();
+  if (page === "selections") await initSelections();
   if (page === "admin") await initAdmin(balls);
 }
 
@@ -194,16 +190,25 @@ function initHome(config: Config, balls: Map<number, Ball>, total: number, free:
   if (!(field instanceof HTMLElement) || !(tilt instanceof HTMLElement) || !(legend instanceof HTMLElement)) return;
   const pickable = config.allowBallPicking && !soldOut;
   field.classList.toggle("pickable", pickable);
-  if (!pickable) field.setAttribute("aria-hidden", "true");
-  else field.removeAttribute("aria-hidden");
+  field.removeAttribute("aria-hidden");
+  if (pickable) {
+    tilt.removeAttribute("aria-hidden");
+    tilt.setAttribute("role", "group");
+    tilt.setAttribute(
+      "aria-label",
+      "Balls. Arrow keys move between balls. Enter picks a free ball. Shaded balls are held or sold.",
+    );
+  } else {
+    tilt.setAttribute("aria-hidden", "true");
+  }
   let picks = readPicks();
-  renderMarquee(tilt, balls, picks, total, soldOut);
+  renderMarquee(tilt, balls, picks, soldOut, pickable);
   const paused = readPaused();
   if (paused) field.classList.add("paused");
   const setMotion = () => {
     if (!(motion instanceof HTMLButtonElement)) return;
     const hovering = pickable && field.matches(":hover");
-    motion.innerHTML = "";
+    motion.replaceChildren();
     const label = document.createElement("span");
     label.textContent = field.classList.contains("paused")
       ? "Motion paused"
@@ -253,7 +258,7 @@ function initHome(config: Config, balls: Map<number, Ball>, total: number, free:
     const strong = document.createElement("strong");
     strong.className = "tnum";
     strong.textContent = `${free.toLocaleString("en-CA")} of ${countLabel} balls still free`;
-    stock.append(strong, " · shaded balls are already sold");
+    stock.append(strong, " · shaded balls are held or sold");
   }
   const soldLine = document.querySelector("#soldout-stock");
   if (soldLine) soldLine.textContent = `All ${countLabel} balls are shaded.`;
@@ -273,15 +278,27 @@ function initHome(config: Config, balls: Map<number, Ball>, total: number, free:
   const qtyOut = document.querySelector("#qty");
   const qtySum = document.querySelector("#qty-sum");
   const qtyBtn = document.querySelector("#qty-cta");
-  const stockCap = Math.max(free, 1);
-  let qty = Math.min(readQty(), stockCap);
+  const maxQty = Math.max(1, free);
+  let qty = Math.min(readQty(), maxQty);
   const drawQty = () => {
-    if (qtyOut) qtyOut.textContent = String(qty);
+    if (qtyOut instanceof HTMLInputElement) {
+      qtyOut.value = String(qty);
+      qtyOut.max = String(maxQty);
+    } else if (qtyOut) {
+      qtyOut.textContent = String(qty);
+    }
     if (qtySum) qtySum.textContent = money(qty * config.amountCents, config.currency);
     if (qtyBtn) qtyBtn.textContent = qty === 1 ? "Get a ball" : `Get ${qty} balls`;
     writeQty(qty);
   };
   drawQty();
+  qtyOut?.addEventListener("change", () => {
+    if (!(qtyOut instanceof HTMLInputElement)) return;
+    const next = Number(qtyOut.value);
+    qty = Number.isInteger(next) ? Math.min(maxQty, Math.max(1, next)) : 1;
+    drawQty();
+    say(`${qty} ${qty === 1 ? "ball" : "balls"}.`);
+  });
   document.querySelector("#qty-dec")?.addEventListener("click", () => {
     qty = Math.max(1, qty - 1);
     drawQty();
@@ -353,6 +370,29 @@ function initHome(config: Config, balls: Map<number, Ball>, total: number, free:
   };
   drawTray();
 
+  tilt.addEventListener("keydown", (event) => {
+    if (!pickable) return;
+    const current = event.target;
+    if (!(current instanceof HTMLButtonElement) || current.dataset.row == null || current.dataset.col == null) return;
+    const row = Number(current.dataset.row);
+    const col = Number(current.dataset.col);
+    if (!["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    let target: HTMLButtonElement | null = null;
+    if (event.key === "Home" || event.key === "End") {
+      const buttons = [...tilt.querySelectorAll<HTMLButtonElement>(`button[data-row="${row}"]`)];
+      target = event.key === "Home" ? (buttons[0] ?? null) : (buttons[buttons.length - 1] ?? null);
+    } else {
+      const nextRow = event.key === "ArrowDown" ? row + 1 : event.key === "ArrowUp" ? row - 1 : row;
+      const nextCol = event.key === "ArrowRight" ? col + 1 : event.key === "ArrowLeft" ? col - 1 : col;
+      target = tilt.querySelector<HTMLButtonElement>(`button[data-row="${nextRow}"][data-col="${nextCol}"]`);
+    }
+    if (!target || target === current) return;
+    for (const button of tilt.querySelectorAll<HTMLButtonElement>("button.ball")) button.tabIndex = -1;
+    target.tabIndex = 0;
+    target.focus();
+  });
+
   field.addEventListener("click", (event) => {
     if (!pickable) return;
     const target = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-n]") : null;
@@ -391,12 +431,13 @@ function showBlocked(
   onPick: () => void,
 ): void {
   dismissBlocked?.();
-  const free = neighbours(n, balls, picks);
+    const free = neighbours(n, balls, picks);
   const pop = document.createElement("div");
   pop.className = "pop";
   pop.setAttribute("role", "alert");
   const title = document.createElement("h3");
-  title.textContent = `Ball ${ballNumber(n)} is already sold`;
+  const held = balls.get(n)?.status === "selected";
+  title.textContent = held ? `Ball ${ballNumber(n)} is held` : `Ball ${ballNumber(n)} is already sold`;
   const copy = document.createElement("p");
   copy.textContent = "Shaded balls belong to someone else, so they can't be picked.";
   pop.append(title, copy);
@@ -471,7 +512,8 @@ function initPick(config: Config, balls: Map<number, Ball>, soldOut: boolean): v
   const search = document.querySelector("#find");
   if (!(grid instanceof HTMLElement) || !(ranges instanceof HTMLElement) || !(side instanceof HTMLElement)) return;
   let picks = readPicks();
-  let start = 301;
+  const highest = highestBall(balls);
+  let start = 1;
   let hideSold = false;
   const drawSide = () => {
     side.replaceChildren();
@@ -507,6 +549,7 @@ function initPick(config: Config, balls: Map<number, Ball>, soldOut: boolean): v
       remove.type = "button";
       remove.className = "rm";
       remove.textContent = "Remove";
+      remove.setAttribute("aria-label", `Remove ball ${ballNumber(n)}`);
       remove.addEventListener("click", () => {
         picks = picks.filter((pick) => pick !== n);
         writePicks(picks);
@@ -531,8 +574,8 @@ function initPick(config: Config, balls: Map<number, Ball>, soldOut: boolean): v
     hold.append("Picks aren't held until you pay. ", ph("Hold rule TBC"));
     side.append(tot, next, hold);
   };
-  const highest = highestBall(balls);
   const draw = () => {
+    const blockEnd = Math.min(start + 99, highest);
     ranges.replaceChildren();
     const blocks = Math.max(1, Math.ceil(highest / 100));
     for (let block = 0; block < blocks; block += 1) {
@@ -543,6 +586,8 @@ function initPick(config: Config, balls: Map<number, Ball>, soldOut: boolean): v
       const tab = document.createElement("button");
       tab.type = "button";
       tab.className = from === start ? "rg on" : "rg";
+      tab.setAttribute("aria-pressed", from === start ? "true" : "false");
+      tab.setAttribute("aria-label", `Balls ${ballNumber(from)} to ${ballNumber(to)}, ${open} free`);
       tab.append(`${ballNumber(from)}–${ballNumber(to)}`);
       const small = document.createElement("small");
       small.textContent = `${open} free`;
@@ -552,16 +597,20 @@ function initPick(config: Config, balls: Map<number, Ball>, soldOut: boolean): v
         draw();
       });
       ranges.append(tab);
+      if (from === start) requestAnimationFrame(() => tab.scrollIntoView({ block: "nearest", inline: "nearest" }));
     }
     grid.replaceChildren();
+    grid.setAttribute("role", "group");
+    grid.setAttribute("aria-label", `Balls ${ballNumber(start)} to ${ballNumber(blockEnd)}`);
     const buttons: HTMLButtonElement[] = [];
-    for (let n = start; n <= Math.min(start + 99, highest); n += 1) {
+    for (let n = start; n <= blockEnd; n += 1) {
+      if (!balls.has(n)) continue;
       const state = visualFor(n, balls, picks);
       if (hideSold && state === "sold") continue;
       const button = document.createElement("button");
       button.type = "button";
       button.dataset.n = String(n);
-      paint(button, n, state);
+      paint(button, n, state, balls.get(n)?.status);
       button.tabIndex = buttons.length === 0 ? 0 : -1;
       button.addEventListener("click", () => toggle(n, button));
       buttons.push(button);
@@ -571,10 +620,9 @@ function initPick(config: Config, balls: Map<number, Ball>, soldOut: boolean): v
     drawSide();
     const foot = document.querySelector("#range-count");
     if (foot) {
-      const end = Math.min(start + 99, highest);
       let open = 0;
-      for (let n = start; n <= end; n += 1) if (isFree(balls.get(n))) open += 1;
-      foot.textContent = `${ballNumber(start)}–${ballNumber(end)} · ${open} free`;
+      for (let n = start; n <= blockEnd; n += 1) if (isFree(balls.get(n))) open += 1;
+      foot.textContent = `${ballNumber(start)}–${ballNumber(blockEnd)} · ${open} free`;
     }
   };
   const toggle = (n: number, button: HTMLButtonElement) => {
@@ -604,8 +652,10 @@ function initPick(config: Config, balls: Map<number, Ball>, soldOut: boolean): v
       }
       const block = Math.floor((n - 1) / 100) * 100 + 1;
       start = block;
-      const state = visualFor(n, balls, picks);
-      found.textContent = `${ballNumber(n)} is ${state === "sold" ? "sold" : "free"} — it's in ${ballNumber(block)}–${block + 99}.`;
+      const status = balls.get(n)?.status;
+      const word = status === "selected" ? "held" : status === "sold" ? "sold" : "free";
+      const blockEnd = Math.min(block + 99, highest);
+      found.textContent = `${ballNumber(n)} is ${word}. It's in ${ballNumber(block)}–${ballNumber(blockEnd)}.`;
       draw();
       grid.querySelector<HTMLButtonElement>(`[data-n="${n}"]`)?.focus();
     });
@@ -780,7 +830,12 @@ async function submitCheckout(config: Config, name: string, email: string, pay: 
         const ball = fresh.get(n);
         if (!ball) continue;
         const result = await buyBall({ email, buyerName: name, ballId: ball.id });
-        recorded.push({ number: n, status: "recorded", reference: result.purchase.stripeTestReference });
+        recorded.push({
+          number: n,
+          status: "recorded",
+          reference: result.purchase.stripeTestReference,
+          receiptToken: result.purchase.receiptToken,
+        });
       }
       writePicks([]);
     } else {
@@ -793,6 +848,7 @@ async function submitCheckout(config: Config, name: string, email: string, pay: 
           number: result.purchase.ball.ballNumber,
           status: "recorded",
           reference: result.purchase.stripeTestReference,
+          receiptToken: result.purchase.receiptToken,
         });
       }
     }
@@ -806,6 +862,20 @@ async function submitCheckout(config: Config, name: string, email: string, pay: 
     });
     location.href = "/confirmation";
   } catch (error) {
+    if (recorded.length > 0) {
+      writePicks(readPicks().filter((n) => !recorded.some((ball) => ball.number === n)));
+      writeReceipt({
+        email,
+        name,
+        balls: recorded,
+        amountCents: recorded.length * config.amountCents,
+        currency: config.currency,
+        charged: false,
+        incomplete: true,
+      });
+      location.href = "/confirmation";
+      return;
+    }
     pay.disabled = false;
     say(error instanceof Error ? error.message : "The test payment did not finish.");
   }
@@ -827,7 +897,10 @@ function initConfirmation(config: Config): void {
   title.textContent = "You're in the race!";
   const lede = document.createElement("p");
   lede.className = "lede";
-  lede.textContent = `Balls ${receipt.balls.map((ball) => ballNumber(ball.number)).join(", ")} are yours. On race day they'll tumble down High Street with the rest of the field.`;
+  const numbers = receipt.balls.map((ball) => ballNumber(ball.number)).join(", ");
+  lede.textContent = receipt.incomplete
+    ? `These balls were recorded: ${numbers}. The rest of that checkout did not finish. Nothing was charged.`
+    : `Balls ${numbers} are yours. On race day they'll tumble down High Street with the rest of the field.`;
   const big = document.createElement("div");
   big.className = "big";
   for (const ball of receipt.balls) {
@@ -885,15 +958,21 @@ function initConfirmation(config: Config): void {
     if (index === 1) row.append(" ", ph("Email TBC"));
     next.append(row);
   });
-  const links = document.createElement("p");
+  const links = document.createElement("div");
   links.className = "fine";
-  const purchases = document.createElement("a");
-  purchases.href = `/purchase?email=${encodeURIComponent(receipt.email)}`;
-  purchases.textContent = "View purchases for this email";
-  const records = document.createElement("a");
-  records.href = `/selections?email=${encodeURIComponent(receipt.email)}`;
-  records.textContent = "View the email and ball record";
-  links.append(purchases, " · ", records);
+  const heading = document.createElement("p");
+  heading.textContent = "Save the receipt link for each ball. It opens that purchase only.";
+  const list = document.createElement("ul");
+  for (const ball of receipt.balls) {
+    if (!ball.receiptToken) continue;
+    const item = document.createElement("li");
+    const anchor = document.createElement("a");
+    anchor.href = `/purchase?token=${encodeURIComponent(ball.receiptToken)}`;
+    anchor.textContent = `Receipt for ball ${ballNumber(ball.number)}`;
+    item.append(anchor);
+    list.append(item);
+  }
+  links.append(heading, list);
   host.append(eye, title, lede, big, actions, table, next, links);
 }
 
@@ -912,73 +991,140 @@ async function readSession(): Promise<Session | null> {
   }
 }
 
+function tokenFromInput(value: string): string {
+  const trimmed = value.trim();
+  try {
+    const url = new URL(trimmed, location.origin);
+    const token = url.searchParams.get("token") ?? new URLSearchParams(url.hash.replace(/^#/, "")).get("token");
+    if (token) return token.trim().toLowerCase();
+  } catch {
+    // A bare token is not a URL.
+  }
+  return trimmed.toLowerCase();
+}
+
+function appendPurchase(results: HTMLElement, purchase: Purchase): void {
+  const card = document.createElement("article");
+  card.className = "record";
+  const title = document.createElement("h3");
+  title.textContent = `Ball ${ballNumber(purchase.ball.ballNumber)}`;
+  const status = document.createElement("p");
+  status.textContent = `${purchase.status} · ${purchase.paymentMode} · charged: no`;
+  card.append(title, status);
+  if (purchase.buyerName) {
+    const who = document.createElement("p");
+    who.textContent = purchase.buyerName;
+    card.append(who);
+  }
+  const receipt = document.createElement("p");
+  receipt.textContent = purchase.emailRecord
+    ? `Receipt “${purchase.emailRecord.subject}” — ${purchase.emailRecord.sent ? "sent" : "stored, not sent"}.`
+    : "No receipt stored for this row yet.";
+  card.append(receipt);
+  if (purchase.emailRecord?.text) {
+    const body = document.createElement("pre");
+    body.className = "receipt-text";
+    body.textContent = purchase.emailRecord.text;
+    card.append(body);
+  }
+  results.append(card);
+}
+
 async function initPurchase(): Promise<void> {
   const form = document.querySelector("#lookup");
   const results = document.querySelector("#results");
   if (!(form instanceof HTMLFormElement) || !(results instanceof HTMLElement)) return;
   const input = form.querySelector("input");
-  const account = document.querySelector("#google-account");
-  const session = await readSession();
-  const queryEmail = new URLSearchParams(location.search).get("email") ?? "";
-  let preset = queryEmail;
-  if (account instanceof HTMLElement && session?.googleSignIn && session.signedIn && session.email) {
-    account.hidden = false;
-    account.textContent = `Signed in with Google as ${session.email}. Purchases below match that address. Looking up another email does not need Google.`;
-    if (!queryEmail) preset = session.email;
-  } else if (account instanceof HTMLElement && session?.googleSignIn) {
-    account.hidden = false;
-    account.replaceChildren("Google sign-in is optional. ");
-    const link = document.createElement("a");
-    link.href = "/api/auth/google?next=/purchase";
-    link.textContent = "Sign in";
-    account.append(link, " to open purchases for that address, or look up any email below.");
-  }
-  if (input instanceof HTMLInputElement) input.value = preset;
-  const show = async (email: string) => {
-    results.replaceChildren("Loading purchases…");
+  const showToken = async (token: string) => {
+    results.replaceChildren("Loading receipt…");
     try {
-      const payload = await purchasesFor(email);
+      const payload = await purchaseForToken(token);
       results.replaceChildren();
-      if (payload.purchases.length === 0) {
-        results.textContent = "No demo purchases for that email.";
-        return;
-      }
-      for (const purchase of payload.purchases) {
-        const card = document.createElement("article");
-        card.className = "record";
-        const title = document.createElement("h3");
-        title.textContent = `Ball ${ballNumber(purchase.ball.ballNumber)}`;
-        const status = document.createElement("p");
-        status.textContent = `${purchase.status} · ${purchase.paymentMode} · charged: no`;
-        const receipt = document.createElement("p");
-        receipt.textContent = purchase.emailRecord
-          ? `Receipt “${purchase.emailRecord.subject}” — ${purchase.emailRecord.sent ? "sent" : "stored, not sent"}.`
-          : "No receipt stored for this row.";
-        card.append(title, status, receipt);
-        results.append(card);
-      }
+      appendPurchase(results, payload.purchase);
     } catch (error) {
-      results.textContent = error instanceof Error ? error.message : "Lookup failed.";
+      results.textContent = error instanceof Error ? error.message : "That receipt link did not open.";
     }
   };
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    if (input instanceof HTMLInputElement) void show(input.value.trim());
+    if (input instanceof HTMLInputElement) void showToken(tokenFromInput(input.value));
   });
-  if (preset) void show(preset);
+  const fromQuery = new URLSearchParams(location.search).get("token");
+  if (fromQuery && input instanceof HTMLInputElement) input.value = fromQuery;
+  if (fromQuery) {
+    void showToken(fromQuery);
+    return;
+  }
+  const saved = readReceipt()?.balls.map((ball) => ball.receiptToken).filter((token) => token.length > 0) ?? [];
+  if (saved.length === 0) return;
+  results.replaceChildren();
+  for (const token of saved) {
+    try {
+      const payload = await purchaseForToken(token);
+      appendPurchase(results, payload.purchase);
+    } catch (error) {
+      const note = document.createElement("p");
+      note.textContent = error instanceof Error ? error.message : "That receipt link did not open.";
+      results.append(note);
+    }
+  }
 }
 
-function initSelections(): void {
+async function initSelections(): Promise<void> {
   const form = document.querySelector("#lookup");
   const results = document.querySelector("#results");
+  const gate = document.querySelector("#record-gate");
+  const gateCopy = document.querySelector("#record-gate-copy");
+  const google = document.querySelector("#record-google");
+  const signOut = document.querySelector("#record-signout");
+  const tokenInput = document.querySelector("#admin-token");
+  const emailInput = document.querySelector("#email");
   if (!(form instanceof HTMLFormElement) || !(results instanceof HTMLElement)) return;
-  const input = form.querySelector("input");
-  const preset = new URLSearchParams(location.search).get("email") ?? "";
-  if (input instanceof HTMLInputElement) input.value = preset;
+  if (!(gate instanceof HTMLElement) || !(gateCopy instanceof HTMLElement)) return;
+  if (!(google instanceof HTMLAnchorElement) || !(signOut instanceof HTMLButtonElement)) return;
+  if (!(tokenInput instanceof HTMLInputElement) || !(emailInput instanceof HTMLInputElement)) return;
+  const session = await readSession();
+  const notice = authMessage(new URLSearchParams(location.search).get("auth"));
+  gate.hidden = false;
+  signOut.addEventListener("click", () => {
+    void fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).then(() => {
+      location.href = "/selections";
+    });
+  });
+  let ready = false;
+  if (!session?.googleSignIn) {
+    gateCopy.textContent = `Email and ball records are for a club admin. Google sign-in is not set up, so use an admin token.${notice}`;
+    google.hidden = true;
+    signOut.hidden = true;
+    tokenInput.required = true;
+    ready = true;
+  } else if (!session.signedIn) {
+    gateCopy.textContent = `Sign in with Google, or use an admin token, to open email and ball records.${notice}`;
+    google.hidden = false;
+    signOut.hidden = true;
+    tokenInput.required = true;
+    ready = true;
+  } else if (!session.admin) {
+    gateCopy.textContent = `Signed in as ${session.email}. This Google account is not an admin.`;
+    google.hidden = true;
+    signOut.hidden = false;
+    form.hidden = true;
+    return;
+  } else {
+    gateCopy.textContent = `Signed in as ${session.email}. This account can read stored email and ball records.`;
+    google.hidden = true;
+    signOut.hidden = false;
+    tokenInput.required = false;
+    tokenInput.value = "";
+    tokenInput.closest("details")?.setAttribute("hidden", "");
+    ready = true;
+  }
+  if (!ready) return;
+  form.hidden = false;
   const show = async (email: string) => {
     results.replaceChildren("Loading records…");
     try {
-      const payload = await selectionsFor(email);
+      const payload = await selectionsFor(email, tokenInput.value);
       results.replaceChildren();
       if (payload.selections.length === 0) {
         results.textContent = "No email-and-ball records for that address.";
@@ -996,6 +1142,12 @@ function initSelections(): void {
           ? `Receipt “${selection.emailRecord.subject}” — ${selection.emailRecord.sent ? "sent" : "stored, not sent"}.`
           : "No receipt stored for this selection.";
         card.append(title, detail, receipt);
+        if (selection.emailRecord?.text) {
+          const body = document.createElement("pre");
+          body.className = "receipt-text";
+          body.textContent = selection.emailRecord.text;
+          card.append(body);
+        }
         results.append(card);
       }
     } catch (error) {
@@ -1004,9 +1156,8 @@ function initSelections(): void {
   };
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    if (input instanceof HTMLInputElement) void show(input.value.trim());
+    void show(emailInput.value.trim());
   });
-  if (preset) void show(preset);
 }
 
 async function initAdmin(balls: Map<number, Ball>): Promise<void> {

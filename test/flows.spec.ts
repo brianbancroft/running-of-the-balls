@@ -6,7 +6,10 @@ import { buildSelectionReceipt } from "../src/email/receipt";
 import { planEmailDelivery, sendSelectionReceipt } from "../src/email/deliver";
 import worker from "../src/index";
 import { buildDemoPayment } from "../src/payments/stripe-test";
+import { marqueeNumbers } from "../src/client/format";
 import { purchaseBall } from "../src/purchase-engine";
+
+const SEEDED_SOLD_TOKEN = "390822ccb06855179424236c3774f960118070866e3030acb0808837a6ca55d3";
 
 async function call(path: string, init?: RequestInit): Promise<Response> {
   const ctx = createExecutionContext();
@@ -54,18 +57,35 @@ describe("Running of the Balls demo", () => {
     expect(JSON.stringify(body)).not.toContain("test-admin-token");
   });
 
-  it("lists balls without buyer emails and shades seeded states", async () => {
+  it("lists 2500 balls without buyer emails and shades seeded states", async () => {
     const response = await call("/api/balls");
-    const body = await response.json<{
-      balls: Array<{ ballNumber: number; status: string }>;
-    }>();
+    const raw = await response.text();
+    expect(raw.length).toBeLessThan(180_000);
+    const body = JSON.parse(raw) as {
+      balls: Array<{ ballNumber: number; status: string; label?: string }>;
+    };
     expect(body.balls).toHaveLength(2500);
     expect(body.balls.at(-1)?.ballNumber).toBe(2500);
-    expect(JSON.stringify(body)).not.toContain("@");
+    expect(raw).not.toContain("@");
+    expect(raw).not.toContain("label");
     expect(body.balls.find((ball) => ball.ballNumber === 3)?.status).toBe("sold");
     expect(body.balls.find((ball) => ball.ballNumber === 6)?.status).toBe("selected");
     expect(body.balls.find((ball) => ball.ballNumber === 40)?.status).toBe("sold");
     expect(body.balls.find((ball) => ball.ballNumber === 1)?.status).toBe("available");
+    expect(body.balls.find((ball) => ball.ballNumber === 2500)?.status).toBe("available");
+  });
+
+  it("keeps held and sold balls in a marquee sample", () => {
+    const balls = Array.from({ length: 2500 }, (_, index) => ({
+      ballNumber: index + 1,
+      status: index + 1 === 3 || index + 1 === 40 ? "sold" : index + 1 === 6 ? "selected" : "available",
+    }));
+    const sample = marqueeNumbers(balls, 312, 42);
+    expect(sample).toHaveLength(312);
+    expect(new Set(sample).size).toBe(312);
+    expect(sample).toContain(3);
+    expect(sample).toContain(6);
+    expect(sample).toContain(40);
   });
 
   it("buys a specific ball once, locks it, and stores the receipt without sending", async () => {
@@ -82,6 +102,7 @@ describe("Running of the Balls demo", () => {
         paymentMode: string;
         stripeTestReference: string;
         buyerEmail: string;
+        receiptToken: string;
         ball: { id: number; status: string };
         emailRecord: { subject: string; sent: boolean; mode: string } | null;
       };
@@ -98,6 +119,8 @@ describe("Running of the Balls demo", () => {
     expect(body.email.preview.text.toLowerCase()).toContain("no payment was taken");
     expect(body.purchase.emailRecord?.sent).toBe(false);
     expect(body.purchase.emailRecord?.subject).toContain("ball 9");
+    expect(body.purchase.receiptToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(body.email.preview.text).toContain(`/purchase?token=${body.purchase.receiptToken}`);
 
     const stored = await env.DB.prepare(
       `SELECT ball_id, to_email, subject, text_body, status, mode
@@ -203,19 +226,52 @@ describe("Running of the Balls demo", () => {
     expect(kept?.email).toBe("cancel.demo@example.com");
   });
 
-  it("shows one customer's purchases and not another customer's", async () => {
-    const response = await call("/api/purchases?email=sold.demo@example.com");
+  it("opens one purchase from its receipt token and does not list by email", async () => {
+    const byEmail = await call("/api/purchases?email=sold.demo@example.com");
+    expect(byEmail.status).toBe(400);
+    const hidden = await byEmail.text();
+    expect(hidden).not.toContain("sold.demo");
+    expect(hidden).not.toContain("Demo Buyer");
+
+    const response = await call(`/api/purchases?token=${SEEDED_SOLD_TOKEN}`);
     const body = await response.json<{
-      purchases: Array<{ buyerEmail: string; charged: boolean; paymentMode: string }>;
+      purchase: { buyerEmail: string; charged: boolean; paymentMode: string; ball: { ballNumber: number } };
+      purchases?: unknown;
     }>();
-    expect(body.purchases.length).toBeGreaterThanOrEqual(3);
-    expect(body.purchases.every((purchase) => purchase.buyerEmail === "sold.demo@example.com")).toBe(true);
-    expect(body.purchases.every((purchase) => purchase.charged === false)).toBe(true);
-    expect(body.purchases.every((purchase) => purchase.paymentMode === "stripe_test_fake")).toBe(true);
+    expect(body.purchases).toBeUndefined();
+    expect(body.purchase.buyerEmail).toBe("sold.demo@example.com");
+    expect(body.purchase.ball.ballNumber).toBe(3);
+    expect(body.purchase.charged).toBe(false);
+    expect(body.purchase.paymentMode).toBe("stripe_test_fake");
+    expect(JSON.stringify(body)).not.toContain('"ballNumber":21');
+
+    const ignoredEmail = await call(
+      `/api/purchases?token=${SEEDED_SOLD_TOKEN}&email=offline.demo@example.com`,
+    );
+    const ignored = await ignoredEmail.json<{ purchase: { buyerEmail: string; ball: { ballNumber: number } } }>();
+    expect(ignored.purchase.buyerEmail).toBe("sold.demo@example.com");
+    expect(ignored.purchase.ball.ballNumber).toBe(3);
+
+    const missing = await call(`/api/purchases?token=${"ab".repeat(32)}`);
+    expect(missing.status).toBe(404);
+    expect(await missing.text()).not.toContain("sold.demo");
   });
 
-  it("returns the email-plus-ball record for that address only", async () => {
-    const response = await call("/api/selections?email=offline.demo@example.com");
+  it("keeps email-and-ball records, including receipt text, behind admin auth", async () => {
+    const open = await call("/api/selections?email=offline.demo@example.com");
+    expect(open.status).toBe(401);
+    expect(await open.text()).not.toContain("offline.demo");
+
+    const wrong = await call("/api/admin/selections?email=offline.demo@example.com", {
+      headers: { authorization: "Bearer wrong-token" },
+    });
+    expect(wrong.status).toBe(401);
+    expect(await wrong.text()).not.toContain("Club Table");
+
+    const response = await call("/api/selections?email=offline.demo@example.com", {
+      headers: { authorization: "Bearer test-admin-token" },
+    });
+    expect(response.status).toBe(200);
     const body = await response.json<{
       selections: Array<{ email: string; ballNumber: number; purchaseStatus: string }>;
     }>();
@@ -226,8 +282,7 @@ describe("Running of the Balls demo", () => {
         purchaseStatus: "demo_confirmed",
       }),
     ]);
-    const missing = await call("/api/selections");
-    expect(missing.status).toBe(400);
+    expect(JSON.stringify(body)).not.toContain("sold.demo@example.com");
   });
 
   it("records an admin offline sale without calling Stripe or sending mail", async () => {
@@ -332,6 +387,7 @@ describe("Running of the Balls demo", () => {
         env.DB,
         { email: "pick.on@example.com", buyerName: null, ballId: undefined },
         config,
+        "http://example.com",
       ),
     ).rejects.toThrow(/Choose a ball/);
     await expect(
@@ -339,12 +395,14 @@ describe("Running of the Balls demo", () => {
         env.DB,
         { email: "pick.off@example.com", buyerName: null, ballId: 70 },
         { ...config, allowBallPicking: false },
+        "http://example.com",
       ),
     ).rejects.toThrow(/turned off/);
     const assigned = await purchaseBall(
       env.DB,
       { email: "random.demo@example.com", buyerName: null, ballId: undefined },
       { ...config, allowBallPicking: false },
+      "http://example.com",
     );
     expect(assigned.purchase.ball.status).toBe("sold");
     expect(assigned.purchase.charged).toBe(false);
@@ -386,6 +444,7 @@ describe("Running of the Balls demo", () => {
       reference: "cs_test_fake_demo",
       amountCents: 2000,
       kind: "online_demo",
+      receiptUrl: "http://example.com/purchase?token=abc",
     });
     const calls: string[] = [];
     const original = globalThis.fetch;
@@ -583,5 +642,178 @@ describe("Running of the Balls demo", () => {
     } finally {
       globalThis.fetch = original;
     }
+  });
+
+  it("rejects missing and wrong auth on every admin route", async () => {
+    const routes: Array<{ method: string; path: string; body?: unknown }> = [
+      { method: "GET", path: "/api/admin/sales" },
+      { method: "GET", path: "/api/admin/selections?email=offline.demo@example.com" },
+      { method: "GET", path: "/api/selections?email=sold.demo@example.com" },
+      {
+        method: "POST",
+        path: "/api/admin/offline-sales",
+        body: { email: "blocked.admin@example.com", buyerName: "Blocked", ballId: 2100 },
+      },
+    ];
+    for (const route of routes) {
+      for (const authorization of [undefined, "Bearer wrong-token", "Bearer"]) {
+        const headers: Record<string, string> = {};
+        if (route.body) headers["content-type"] = "application/json";
+        if (authorization) headers.authorization = authorization;
+        const response = await call(route.path, {
+          method: route.method,
+          headers,
+          body: route.body ? JSON.stringify(route.body) : undefined,
+        });
+        expect(response.status, `${route.method} ${route.path} ${authorization ?? "none"}`).toBe(401);
+        const text = await response.text();
+        expect(text).not.toContain("offline.demo");
+        expect(text).not.toContain("sold.demo");
+        expect(text).not.toContain("Club Table");
+      }
+    }
+    const ball = await env.DB.prepare(`SELECT status FROM balls WHERE id = 2100`).first<{ status: string }>();
+    expect(ball?.status).toBe("available");
+  });
+
+  it("escapes a buyer name in the stored receipt and rejects a broken email", async () => {
+    const name = "O'Brien & \"Ada\" <script\u003e";
+    const bought = await post("/api/purchases", {
+      email: "xss.buyer@example.com",
+      buyerName: name,
+      ballId: 1600,
+    });
+    expect(bought.status).toBe(201);
+    const stored = await env.DB.prepare(
+      `SELECT html_body, text_body FROM email_dispatches WHERE to_email = ?`,
+    )
+      .bind("xss.buyer@example.com")
+      .first<{ html_body: string; text_body: string }>();
+    expect(stored?.html_body).toContain("O&#39;Brien &amp; &quot;Ada&quot; &lt;script&gt;");
+    expect(stored?.html_body).not.toContain("<script");
+    expect(stored?.text_body).toContain(name);
+    const broken = await post("/api/purchases", {
+      email: "buyer@example.com\nBcc: evil@example.com",
+      buyerName: "Ada",
+      ballId: 1601,
+    });
+    expect(broken.status).toBe(400);
+    const named = await post("/api/purchases", {
+      email: "newline.name@example.com",
+      buyerName: "Ada\r\nEvil",
+      ballId: 1601,
+    });
+    expect(named.status).toBe(201);
+    const row = await named.json<{ purchase: { buyerName: string } }>();
+    expect(row.purchase.buyerName).toBe("Ada Evil");
+    const stillFree = await env.DB.prepare(`SELECT status FROM balls WHERE id = 1601`).first<{ status: string }>();
+    expect(stillFree?.status).toBe("sold");
+  });
+
+  it("lets only one of an online buy and an offline sale lock the same ball", async () => {
+    const [online, offline] = await Promise.all([
+      post("/api/purchases", { email: "race.online@example.com", buyerName: "On", ballId: 1500 }),
+      post(
+        "/api/admin/offline-sales",
+        { email: "race.offline@example.com", buyerName: "Off", ballId: 1500, note: "Race the online buy." },
+        "test-admin-token",
+      ),
+    ]);
+    expect([online.status, offline.status].sort()).toEqual([201, 409]);
+    const rows = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM ball_selections WHERE ball_id = 1500`,
+    ).first<{ n: number }>();
+    expect(rows?.n).toBe(1);
+    const ball = await env.DB.prepare(`SELECT status FROM balls WHERE id = 1500`).first<{ status: string }>();
+    expect(ball?.status).toBe("sold");
+  });
+
+  it("holds a ball against a second hold and an offline sale, then frees it on cancel", async () => {
+    const held = await post("/api/selections", {
+      email: "hold.race@example.com",
+      buyerName: "Hold",
+      ballId: 1501,
+    });
+    expect(held.status).toBe(201);
+    const heldBody = await held.json<{ purchase: { id: string } }>();
+    expect((await post("/api/selections", { email: "other.hold@example.com", ballId: 1501 })).status).toBe(409);
+    expect(
+      (
+        await post(
+          "/api/admin/offline-sales",
+          { email: "table.hold@example.com", buyerName: "Table", ballId: 1501, note: "Should wait." },
+          "test-admin-token",
+        )
+      ).status,
+    ).toBe(409);
+    expect((await post("/api/purchases", { email: "early.buy@example.com", ballId: 1501 })).status).toBe(409);
+    expect(
+      (await post(`/api/purchases/${heldBody.purchase.id}/cancel`, { email: "hold.race@example.com" })).status,
+    ).toBe(200);
+    const freed = await env.DB.prepare(`SELECT status FROM balls WHERE id = 1501`).first<{ status: string }>();
+    expect(freed?.status).toBe("available");
+    expect(
+      (await post("/api/purchases", { email: "after.cancel@example.com", buyerName: "After", ballId: 1501 })).status,
+    ).toBe(201);
+    expect(
+      (await post(`/api/purchases/${heldBody.purchase.id}/cancel`, { email: "hold.race@example.com" })).status,
+    ).toBe(200);
+    const sold = await env.DB.prepare(`SELECT status FROM balls WHERE id = 1501`).first<{ status: string }>();
+    expect(sold?.status).toBe("sold");
+    const confirmed = await env.DB.prepare(
+      `SELECT COUNT(*) AS n
+       FROM purchases p
+       JOIN ball_selections s ON s.purchase_id = p.id
+       WHERE s.ball_id = 1501 AND p.status = 'demo_confirmed'`,
+    ).first<{ n: number }>();
+    expect(confirmed?.n).toBe(1);
+  });
+
+  it("sells many balls to one buyer with no cap and never double-sells", async () => {
+    const ids = [1710, 1711, 1712, 1713, 1714, 1715, 1716, 1717, 1718, 1719, 1720, 1721];
+    for (const id of ids) {
+      const response = await post("/api/purchases", {
+        email: "many.balls@example.com",
+        buyerName: "Many",
+        ballId: id,
+      });
+      expect(response.status).toBe(201);
+    }
+    const [first, second] = await Promise.all([
+      post("/api/purchases", { email: "many.a@example.com", ballId: 1710 }),
+      post("/api/purchases", { email: "many.b@example.com", ballId: 1710 }),
+    ]);
+    expect(first.status).toBe(409);
+    expect(second.status).toBe(409);
+    const rows = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM ball_selections WHERE ball_id = 1710`,
+    ).first<{ n: number }>();
+    expect(rows?.n).toBe(1);
+    const owned = await env.DB.prepare(
+      `SELECT COUNT(DISTINCT s.ball_id) AS n
+       FROM ball_selections s
+       JOIN purchases p ON p.id = s.purchase_id
+       WHERE p.buyer_email = ? AND p.status = 'demo_confirmed'`,
+    )
+      .bind("many.balls@example.com")
+      .first<{ n: number }>();
+    expect(owned?.n).toBe(12);
+  });
+
+  it("assigns distinct balls when several checkouts run together", async () => {
+    const config = readConfig(env);
+    const results = await Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        purchaseBall(
+          env.DB,
+          { email: `assigned.${index}@example.com`, buyerName: null, ballId: undefined },
+          { ...config, allowBallPicking: false },
+          "http://example.com",
+        ),
+      ),
+    );
+    const ids = results.map((result) => result.purchase.ball.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(results.every((result) => result.purchase.charged === false)).toBe(true);
   });
 });

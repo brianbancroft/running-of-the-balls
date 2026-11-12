@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
   <title>Running of the Balls</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -47,7 +48,7 @@
         <div class="qty">
           <div class="stepper">
             <button type="button" id="qty-dec" aria-label="Fewer balls">−</button>
-            <output id="qty">1</output>
+            <input id="qty" type="number" min="1" value="1" inputmode="numeric" aria-label="Number of balls">
             <button type="button" id="qty-inc" aria-label="More balls">+</button>
           </div>
           <div class="sum"><span id="qty-label">Balls</span><strong id="qty-sum"></strong> <span class="ph">Placeholder price</span></div>
@@ -90,7 +91,7 @@
   <section class="section" id="prizes" style="padding-top:0">
     <div class="prizes">
       <div>
-        <div class="eyebrow" style="color:#FFD3DA">Prizes</div>
+        <div class="eyebrow">Prizes</div>
         <h2 style="margin-top:12px">Cash for the first three balls down the hill.</h2>
         <p>These amounts are from past years and are shown for flavour only. This year’s prizes will be posted before race day.</p>
         <p style="margin-top:18px"><span class="ph">Placeholder · prizes TBA</span></p>

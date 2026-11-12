@@ -38,7 +38,7 @@ export async function assertAdmin(
   if (!config.adminToken && config.adminEmails.length === 0) {
     throw new HttpError(
       503,
-      "Offline sales are off until ADMIN_TOKEN or ADMIN_EMAILS is set in .dev.vars or as a Wrangler secret.",
+      "Admin tools are off until ADMIN_TOKEN or ADMIN_EMAILS is set in .dev.vars or as a Wrangler secret.",
     );
   }
   throw new HttpError(401, "Admin access was not accepted.");

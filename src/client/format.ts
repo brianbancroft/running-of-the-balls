@@ -31,6 +31,44 @@ export function ballNumber(n: number): string {
   return n >= 1000 ? String(n) : String(n).padStart(3, "0");
 }
 
+function mixSeed(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (Math.imul(1664525, state) + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+}
+
+function shuffleNumbers(items: number[], seed: number): number[] {
+  const copy = [...items];
+  const random = mixSeed(seed);
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(random() * (index + 1));
+    const left = copy[index];
+    const right = copy[swap];
+    if (left === undefined || right === undefined) continue;
+    copy[index] = right;
+    copy[swap] = left;
+  }
+  return copy;
+}
+
+export function marqueeNumbers(
+  balls: Array<{ ballNumber: number; status: string }>,
+  count: number,
+  seed: number,
+): number[] {
+  if (count <= 0 || balls.length === 0) return [];
+  const shaded = balls.filter((ball) => ball.status !== "available").map((ball) => ball.ballNumber);
+  const open = balls.filter((ball) => ball.status === "available").map((ball) => ball.ballNumber);
+  const shadedOrder = shuffleNumbers(shaded, seed);
+  const chosen =
+    shadedOrder.length >= count
+      ? shadedOrder.slice(0, count)
+      : [...shadedOrder, ...shuffleNumbers(open, seed + 1).slice(0, count - shadedOrder.length)];
+  return shuffleNumbers(chosen, seed + 2);
+}
+
 export function money(cents: number, currency: string): string {
   return new Intl.NumberFormat("en-CA", { style: "currency", currency }).format(cents / 100);
 }

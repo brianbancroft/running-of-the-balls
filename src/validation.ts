@@ -58,6 +58,19 @@ export function parseNote(value: unknown): string {
   return note.length > 0 ? note : fallback;
 }
 
+const RECEIPT_TOKEN_PATTERN = /^[0-9a-f]{64}$/;
+
+export function parseReceiptToken(value: unknown): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new HttpError(400, "Open the receipt link from checkout. Purchases are not listed by email.");
+  }
+  const token = value.trim().toLowerCase();
+  if (!RECEIPT_TOKEN_PATTERN.test(token)) {
+    throw new HttpError(400, "That receipt link is not valid.");
+  }
+  return token;
+}
+
 export function parsePurchaseId(value: string): string {
   if (!UUID_PATTERN.test(value)) {
     throw new HttpError(400, "That purchase id is not valid.");

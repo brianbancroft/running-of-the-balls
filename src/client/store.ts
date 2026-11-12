@@ -5,7 +5,12 @@ const SEED = "rotb-field-seed";
 const RECEIPT = "rotb-last-receipt";
 const DETAILS = "rotb-buyer";
 
-export type ReceiptBall = { number: number; status: "recorded" | "taken"; reference: string | null };
+export type ReceiptBall = {
+  number: number;
+  status: "recorded" | "taken";
+  reference: string | null;
+  receiptToken: string;
+};
 
 export type StoredReceipt = {
   email: string;
@@ -14,6 +19,7 @@ export type StoredReceipt = {
   amountCents: number;
   currency: string;
   charged: false;
+  incomplete?: boolean;
 };
 
 export function readPicks(): number[] {

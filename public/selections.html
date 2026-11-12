@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
   <title>Email and ball · Running of the Balls</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -14,16 +15,26 @@
   <div class="ribbon"><span class="pill">Demo</span> Payments run in Stripe test mode — no real charges.</div>
   <header class="site-head">
     <a class="brand" href="/"><img class="logo" src="/marks/kinsmen-club-of-ladysmith-trim.png" alt="Kinsmen Club of Ladysmith"><span class="wordmark"><span class="n">Running of <em>the Balls</em></span></span></a>
-    <nav><a href="/purchase">Your purchases</a><a href="/admin">Offline sales</a></nav>
+    <nav><a href="/purchase">Your receipt</a><a href="/admin">Offline sales</a></nav>
   </header>
   <main class="section">
     <div class="eyebrow">Email and ball records</div>
-    <h1 class="display" style="font-size:54px;margin:8px 0 12px">Which ball this email selected</h1>
-    <p class="lede">Each row is the stored link between an email and a ball, plus the receipt kept beside it. Cancelled holds stay here. Nothing is sent while email is in dry run.</p>
-    <form id="lookup" class="fld" style="max-width:420px;margin-top:22px">
-      <label for="email">Email</label>
-      <input class="in" id="email" type="email" required>
-      <button class="btn red" type="submit" style="margin-top:12px">Look up</button>
+    <h1 class="display" style="font-size:54px;margin:8px 0 12px">Stored receipts for an address</h1>
+    <p class="lede">Club admins can read the email-and-ball rows, including the receipt text kept beside each ball. Buyers use the receipt link from checkout instead.</p>
+    <div id="record-gate" class="panel admin-gate" hidden>
+      <p id="record-gate-copy"></p>
+      <div class="ctas">
+        <a class="btn red" id="record-google" href="/api/auth/google?next=/selections">Sign in with Google</a>
+        <button class="btn ghost" id="record-signout" type="button" hidden>Sign out</button>
+      </div>
+    </div>
+    <form id="lookup" class="admin-form panel" hidden>
+      <details open>
+        <summary>Admin token</summary>
+        <label for="admin-token">Admin token <input id="admin-token" name="token" type="password" autocomplete="current-password"></label>
+      </details>
+      <label for="email">Email <input id="email" name="email" type="email" maxlength="254" required></label>
+      <button class="btn red" type="submit">Look up</button>
     </form>
     <div id="results" class="steps" style="margin-top:28px"></div>
   </main>

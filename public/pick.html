@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
   <title>Pick your balls · Running of the Balls</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -33,9 +34,9 @@
           <div class="toolbar">
             <label class="search">
               <span class="lab">No.</span>
-              <input id="find" inputmode="numeric" aria-label="Find a ball by number" style="border:0;font:inherit;width:8ch;font-weight:700">
+              <input id="find" inputmode="numeric" aria-label="Find a ball by number" aria-describedby="found" style="border:0;font:inherit;width:8ch;font-weight:700">
             </label>
-            <p class="found" id="found">Find a ball by its number.</p>
+            <p class="found" id="found">Find a ball by its number. Shaded balls are held or sold.</p>
             <label class="toggle">Hide sold <input id="hide-sold" type="checkbox"></label>
           </div>
           <div class="ranges" id="ranges"></div>
@@ -44,7 +45,7 @@
             <span id="range-count"></span>
           </div>
         </div>
-        <p class="fine">Keyboard: arrow keys move between balls. Enter or Space picks or un-picks. Sold balls are skipped for picking but still announced.</p>
+        <p class="fine">Keyboard: arrow keys move between balls. Enter or Space picks or un-picks. Held and sold balls stay shaded and are announced.</p>
       </div>
       <aside class="side"><div class="panel" id="side"></div></aside>
     </div>

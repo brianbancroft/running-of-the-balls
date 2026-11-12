@@ -3,8 +3,6 @@ export type BallStatus = "available" | "selected" | "sold";
 export type Ball = {
   id: number;
   ballNumber: number;
-  label: string;
-  color: string;
   status: BallStatus;
 };
 
@@ -27,8 +25,9 @@ export type Purchase = {
   offlineNote: string | null;
   buyerEmail: string;
   buyerName: string | null;
+  receiptToken: string;
   ball: Ball;
-  emailRecord: { subject: string; sent: boolean } | null;
+  emailRecord: { subject: string; sent: boolean; text: string | null } | null;
 };
 
 type ApiError = { error?: string };
@@ -88,11 +87,14 @@ export function offlineSale(
   });
 }
 
-export function purchasesFor(email: string): Promise<{ purchases: Purchase[] }> {
-  return send(`/api/purchases?email=${encodeURIComponent(email)}`);
+export function purchaseForToken(token: string): Promise<{ purchase: Purchase }> {
+  return send(`/api/purchases?token=${encodeURIComponent(token)}`);
 }
 
-export function selectionsFor(email: string): Promise<{
+export function selectionsFor(
+  email: string,
+  token: string,
+): Promise<{
   selections: Array<{
     id: string;
     email: string;
@@ -100,8 +102,14 @@ export function selectionsFor(email: string): Promise<{
     ballNumber: number;
     ballStatus: string;
     purchaseStatus: string;
-    emailRecord: { subject: string; sent: boolean } | null;
+    receiptToken: string;
+    emailRecord: { subject: string; sent: boolean; text: string | null } | null;
   }>;
 }> {
-  return send(`/api/selections?email=${encodeURIComponent(email)}`);
+  const headers: Record<string, string> = { accept: "application/json" };
+  if (token.trim()) headers.authorization = `Bearer ${token}`;
+  return send(`/api/admin/selections?email=${encodeURIComponent(email)}`, {
+    credentials: "same-origin",
+    headers,
+  });
 }
