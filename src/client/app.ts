@@ -361,6 +361,8 @@ function initHome(config: Config, balls: Map<number, Ball>, total: number, free:
   });
 }
 
+let dismissBlocked: (() => void) | null = null;
+
 function showBlocked(
   anchor: HTMLElement,
   n: number,
@@ -368,7 +370,7 @@ function showBlocked(
   picks: number[],
   onPick: () => void,
 ): void {
-  document.querySelector(".pop")?.remove();
+  dismissBlocked?.();
   const free = neighbours(n, balls, picks);
   const pop = document.createElement("div");
   pop.className = "pop";
@@ -378,6 +380,9 @@ function showBlocked(
   const copy = document.createElement("p");
   copy.textContent = "Shaded balls belong to someone else, so they can't be picked.";
   pop.append(title, copy);
+  const acts = document.createElement("div");
+  acts.className = "acts";
+  const first = free[0];
   if (free.length > 0) {
     const alts = document.createElement("div");
     alts.className = "alts";
@@ -386,45 +391,52 @@ function showBlocked(
       paint(ball, alt, "available");
       alts.append(ball);
     }
-    const choose = document.createElement("button");
-    choose.type = "button";
-    choose.className = "btn red sm";
-    const first = free[0];
-    choose.textContent = first === undefined ? "Close" : `Pick ${ballNumber(first)}`;
-    choose.addEventListener("click", () => {
-      if (first === undefined) return;
-      writePicks([...readPicks().filter((pick) => pick !== first), first]);
-      pop.remove();
-      anchor.classList.remove("press-sold");
-      onPick();
-      say(`Ball ${ballNumber(first)} added.`);
-    });
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "btn ghost sm";
-    close.textContent = "Close";
-    close.addEventListener("click", () => {
-      pop.remove();
-      anchor.classList.remove("press-sold");
-    });
-    const acts = document.createElement("div");
-    acts.className = "acts";
-    acts.append(choose, close);
-    pop.append(alts, acts);
+    pop.append(alts);
+    if (first !== undefined) {
+      const choose = document.createElement("button");
+      choose.type = "button";
+      choose.className = "btn red sm";
+      choose.textContent = `Pick ${ballNumber(first)}`;
+      choose.addEventListener("click", () => {
+        writePicks([...new Set([...readPicks().filter((pick) => pick !== n), first])]);
+        finish();
+        onPick();
+        say(`Ball ${ballNumber(first)} added.`);
+      });
+      acts.append(choose);
+    }
   }
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "btn ghost sm";
+  close.textContent = "Close";
+  close.addEventListener("click", () => finish());
+  acts.append(close);
+  pop.append(acts);
   const rect = anchor.getBoundingClientRect();
   pop.style.position = "fixed";
   pop.style.left = `${Math.max(12, rect.left)}px`;
   pop.style.top = `${rect.bottom + 12}px`;
   pop.style.zIndex = "30";
   document.body.append(pop);
-  const close = () => {
+  const onKey = (event: KeyboardEvent) => {
+    if (event.key === "Escape") finish();
+  };
+  const onPointer = (event: PointerEvent) => {
+    if (!(event.target instanceof Node) || pop.contains(event.target) || event.target === anchor) return;
+    finish();
+  };
+  const finish = () => {
     pop.remove();
     anchor.classList.remove("press-sold");
+    document.removeEventListener("keydown", onKey);
+    document.removeEventListener("pointerdown", onPointer);
+    if (dismissBlocked === finish) dismissBlocked = null;
+    if (anchor instanceof HTMLButtonElement) anchor.focus();
   };
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") close();
-  }, { once: true });
+  dismissBlocked = finish;
+  document.addEventListener("keydown", onKey);
+  window.setTimeout(() => document.addEventListener("pointerdown", onPointer), 0);
 }
 
 function initPick(config: Config, balls: Map<number, Ball>, soldOut: boolean): void {
@@ -671,34 +683,53 @@ function initCheckout(config: Config, balls: Map<number, Ball>): void {
         const copy = document.createElement("p");
         copy.textContent = "Someone else bought it while you were checking out. You haven't been charged for anything.";
         alert.append(title, copy);
-        if (alts[0] !== undefined) {
+        if (alts.length > 0) {
+          const nearby = document.createElement("div");
+          nearby.className = "alts";
+          for (const alt of alts) {
+            const ball = document.createElement("span");
+            paint(ball, alt, "available");
+            nearby.append(ball);
+          }
+          alert.append(nearby);
+        }
+        const actions = document.createElement("div");
+        actions.className = "acts";
+        const swapTarget = alts[0];
+        if (swapTarget !== undefined) {
           const swap = document.createElement("button");
           swap.type = "button";
           swap.className = "btn red sm";
-          swap.textContent = `Swap for ${ballNumber(alts[0])}`;
+          swap.textContent = `Swap for ${ballNumber(swapTarget)}`;
           swap.addEventListener("click", () => {
-            writePicks(readPicks().map((pick) => (pick === n ? alts[0] ?? pick : pick)));
+            writePicks([...new Set(readPicks().map((pick) => (pick === n ? swapTarget : pick)))]);
             dropped = new Set();
             draw();
           });
-          alert.append(swap);
+          actions.append(swap);
         }
-        const drop = document.createElement("button");
-        drop.type = "button";
-        drop.className = "btn ghost sm";
-        drop.textContent = kept.length ? `Continue with ${kept.length} balls` : "Pick a different ball";
-        drop.addEventListener("click", () => {
-          if (!kept.length) {
-            location.href = "/pick";
-            return;
-          }
-          dropped = new Set(takenNow);
-          writePicks(kept);
-          draw();
-        });
-        alert.append(drop);
+        const another = document.createElement("a");
+        another.className = "btn ghost sm";
+        another.href = "/pick";
+        another.textContent = "Pick a different ball";
+        actions.append(another);
+        if (kept.length > 0) {
+          const keep = document.createElement("button");
+          keep.type = "button";
+          keep.className = "btn ghost sm";
+          keep.textContent = `Continue with ${kept.length} ${kept.length === 1 ? "ball" : "balls"}`;
+          keep.addEventListener("click", () => {
+            dropped = new Set(takenNow);
+            writePicks(kept);
+            draw();
+          });
+          actions.append(keep);
+        }
+        alert.append(actions);
       }
     }
+    const payNote = document.querySelector("#pay-note");
+    if (payNote instanceof HTMLElement) payNote.hidden = !blocked;
   };
   draw();
   pay.addEventListener("click", () => {
