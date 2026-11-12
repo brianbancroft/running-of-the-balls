@@ -75,7 +75,7 @@ function renderMarquee(root, balls, picks, max, soldAll) {
     const rows = 12;
     for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
         const row = document.createElement("div");
-        row.className = "row";
+        row.className = rowIndex % 2 === 0 ? "row" : "row back";
         row.style.setProperty("--dur", `${70 + (rowIndex * 37) % 45}s`);
         row.style.setProperty("--delay", `${-((rowIndex * 17) % 60)}s`);
         row.style.setProperty("--rest", `${-10 - ((rowIndex * 13) % 36)}%`);
@@ -183,6 +183,7 @@ function initHome(config, balls, total, free, soldOut) {
         const tog = document.createElement("span");
         tog.className = field.classList.contains("paused") ? "tog play" : "tog";
         motion.append(label, tog);
+        motion.setAttribute("aria-pressed", field.classList.contains("paused") ? "true" : "false");
     };
     setMotion();
     motion?.addEventListener("click", () => {
