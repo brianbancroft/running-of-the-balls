@@ -28,7 +28,7 @@ export function ballColour(n: number): { c: string; hi: string; lo: string } {
 }
 
 export function ballNumber(n: number): string {
-  return n === 1000 ? "1000" : String(n).padStart(3, "0");
+  return n >= 1000 ? String(n) : String(n).padStart(3, "0");
 }
 
 export function money(cents: number, currency: string): string {

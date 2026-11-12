@@ -25,7 +25,7 @@ export function ballColour(n) {
     return { c, hi: mix(c, "#FFFFFF", 0.45), lo: mix(c, "#000000", 0.28) };
 }
 export function ballNumber(n) {
-    return n === 1000 ? "1000" : String(n).padStart(3, "0");
+    return n >= 1000 ? String(n) : String(n).padStart(3, "0");
 }
 export function money(cents, currency) {
     return new Intl.NumberFormat("en-CA", { style: "currency", currency }).format(cents / 100);

@@ -25,7 +25,7 @@ export function readQty() {
     const value = Number(sessionStorage.getItem(QTY) ?? "1");
     if (!Number.isInteger(value) || value < 1)
         return 1;
-    return Math.min(value, 99);
+    return value;
 }
 export function writeQty(qty) {
     sessionStorage.setItem(QTY, String(qty));

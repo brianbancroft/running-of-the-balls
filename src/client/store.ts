@@ -35,7 +35,7 @@ export function writePicks(picks: number[]): void {
 export function readQty(): number {
   const value = Number(sessionStorage.getItem(QTY) ?? "1");
   if (!Number.isInteger(value) || value < 1) return 1;
-  return Math.min(value, 99);
+  return value;
 }
 
 export function writeQty(qty: number): void {

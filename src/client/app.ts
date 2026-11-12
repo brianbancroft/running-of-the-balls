@@ -132,11 +132,17 @@ function patchMarquee(root: HTMLElement, balls: Map<number, Ball>, picks: number
   }
 }
 
+function highestBall(balls: Map<number, Ball>): number {
+  let max = 0;
+  for (const n of balls.keys()) if (n > max) max = n;
+  return max;
+}
+
 function neighbours(n: number, balls: Map<number, Ball>, picks: number[]): number[] {
   const found: number[] = [];
   for (const delta of [1, -1, 2, -2, 3, -3]) {
     const candidate = n + delta;
-    if (candidate < 1 || candidate > 1000 || picks.includes(candidate)) continue;
+    if (!balls.has(candidate) || picks.includes(candidate)) continue;
     if (isFree(balls.get(candidate))) found.push(candidate);
     if (found.length === 3) break;
   }
@@ -241,12 +247,19 @@ function initHome(config: Config, balls: Map<number, Ball>, total: number, free:
 
   const stock = document.querySelector("#stock-line");
   const bar = document.querySelector("#stock-bar");
+  const countLabel = total.toLocaleString("en-CA");
   if (stock) {
     stock.replaceChildren();
     const strong = document.createElement("strong");
     strong.className = "tnum";
-    strong.textContent = `${free} of ${total} balls still free`;
-    stock.append(strong, " · shaded balls are already sold ", ph("Placeholder count"));
+    strong.textContent = `${free.toLocaleString("en-CA")} of ${countLabel} balls still free`;
+    stock.append(strong, " · shaded balls are already sold");
+  }
+  const soldLine = document.querySelector("#soldout-stock");
+  if (soldLine) soldLine.textContent = `All ${countLabel} balls are shaded.`;
+  const hero = document.querySelector("#hero-lede");
+  if (hero) {
+    hero.textContent = `${countLabel} colourful balls, one steep street. Get a numbered ball, then watch it race down High Street — the first balls to the bottom win cash prizes.`;
   }
   if (bar instanceof HTMLElement) bar.style.width = `${total === 0 ? 0 : ((total - free) / total) * 100}%`;
 
@@ -260,7 +273,8 @@ function initHome(config: Config, balls: Map<number, Ball>, total: number, free:
   const qtyOut = document.querySelector("#qty");
   const qtySum = document.querySelector("#qty-sum");
   const qtyBtn = document.querySelector("#qty-cta");
-  let qty = readQty();
+  const stockCap = Math.max(free, 1);
+  let qty = Math.min(readQty(), stockCap);
   const drawQty = () => {
     if (qtyOut) qtyOut.textContent = String(qty);
     if (qtySum) qtySum.textContent = money(qty * config.amountCents, config.currency);
@@ -273,9 +287,13 @@ function initHome(config: Config, balls: Map<number, Ball>, total: number, free:
     drawQty();
   });
   document.querySelector("#qty-inc")?.addEventListener("click", () => {
-    qty = Math.min(99, qty + 1);
+    if (free > 0 && qty >= free) {
+      say(`Quantity ${qty}. That's every ball still free.`);
+      return;
+    }
+    qty += 1;
     drawQty();
-    say(`Quantity ${qty}. Limit is still to be confirmed.`);
+    say(`Quantity ${qty}.`);
   });
 
   const drawTray = () => {
@@ -466,7 +484,7 @@ function initPick(config: Config, balls: Map<number, Ball>, soldOut: boolean): v
     if (picks.length === 0) {
       const empty = document.createElement("div");
       empty.className = "empty-slot";
-      empty.append(document.createElement("i"), "Pick as many as you like ", ph("Limit TBC"));
+      empty.append(document.createElement("i"), "Pick as many as you like.");
       side.append(empty);
     }
     for (const n of picks) {
@@ -513,17 +531,19 @@ function initPick(config: Config, balls: Map<number, Ball>, soldOut: boolean): v
     hold.append("Picks aren't held until you pay. ", ph("Hold rule TBC"));
     side.append(tot, next, hold);
   };
+  const highest = highestBall(balls);
   const draw = () => {
     ranges.replaceChildren();
-    for (let block = 0; block < 10; block += 1) {
+    const blocks = Math.max(1, Math.ceil(highest / 100));
+    for (let block = 0; block < blocks; block += 1) {
       const from = block * 100 + 1;
-      const to = from + 99;
+      const to = Math.min(from + 99, highest);
       let open = 0;
       for (let n = from; n <= to; n += 1) if (isFree(balls.get(n))) open += 1;
       const tab = document.createElement("button");
       tab.type = "button";
       tab.className = from === start ? "rg on" : "rg";
-      tab.append(`${ballNumber(from)}–${to === 1000 ? "1000" : ballNumber(to)}`);
+      tab.append(`${ballNumber(from)}–${ballNumber(to)}`);
       const small = document.createElement("small");
       small.textContent = `${open} free`;
       tab.append(small);
@@ -535,7 +555,7 @@ function initPick(config: Config, balls: Map<number, Ball>, soldOut: boolean): v
     }
     grid.replaceChildren();
     const buttons: HTMLButtonElement[] = [];
-    for (let n = start; n < start + 100; n += 1) {
+    for (let n = start; n <= Math.min(start + 99, highest); n += 1) {
       const state = visualFor(n, balls, picks);
       if (hideSold && state === "sold") continue;
       const button = document.createElement("button");
@@ -551,9 +571,10 @@ function initPick(config: Config, balls: Map<number, Ball>, soldOut: boolean): v
     drawSide();
     const foot = document.querySelector("#range-count");
     if (foot) {
+      const end = Math.min(start + 99, highest);
       let open = 0;
-      for (let n = start; n < start + 100; n += 1) if (isFree(balls.get(n))) open += 1;
-      foot.textContent = `${ballNumber(start)}–${start + 99} · ${open} free`;
+      for (let n = start; n <= end; n += 1) if (isFree(balls.get(n))) open += 1;
+      foot.textContent = `${ballNumber(start)}–${ballNumber(end)} · ${open} free`;
     }
   };
   const toggle = (n: number, button: HTMLButtonElement) => {
@@ -575,8 +596,10 @@ function initPick(config: Config, balls: Map<number, Ball>, soldOut: boolean): v
   if (search instanceof HTMLInputElement && found) {
     search.addEventListener("input", () => {
       const n = Number(search.value);
-      if (!Number.isInteger(n) || n < 1 || n > 1000) {
-        found.textContent = "Enter a ball number from 001 to 1000.";
+      if (!Number.isInteger(n) || !balls.has(n)) {
+        found.textContent = search.value.trim()
+          ? "That number isn't in this catalogue."
+          : "Find a ball by its number.";
         return;
       }
       const block = Math.floor((n - 1) / 100) * 100 + 1;
@@ -629,7 +652,8 @@ function initCheckout(config: Config, balls: Map<number, Ball>): void {
   const amount = document.querySelector("#pay-amount");
   const draw = () => {
     const picks = config.allowBallPicking ? readPicks().filter((n) => !dropped.has(n)) : [];
-    const qty = config.allowBallPicking ? picks.length : readQty();
+    const freeCount = [...balls.values()].filter((ball) => isFree(ball)).length;
+    const qty = config.allowBallPicking ? picks.length : Math.min(readQty(), freeCount);
     order.replaceChildren();
     if (config.allowBallPicking) {
       for (const n of readPicks()) {
@@ -760,7 +784,10 @@ async function submitCheckout(config: Config, name: string, email: string, pay: 
       }
       writePicks([]);
     } else {
-      for (let index = 0; index < readQty(); index += 1) {
+      const fresh = inventoryOf(await getBalls());
+      const freeCount = [...fresh.values()].filter((ball) => isFree(ball)).length;
+      const qty = Math.min(readQty(), freeCount);
+      for (let index = 0; index < qty; index += 1) {
         const result = await buyBall({ email, buyerName: name });
         recorded.push({
           number: result.purchase.ball.ballNumber,

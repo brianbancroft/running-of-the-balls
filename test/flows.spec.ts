@@ -59,7 +59,8 @@ describe("Running of the Balls demo", () => {
     const body = await response.json<{
       balls: Array<{ ballNumber: number; status: string }>;
     }>();
-    expect(body.balls).toHaveLength(1000);
+    expect(body.balls).toHaveLength(2500);
+    expect(body.balls.at(-1)?.ballNumber).toBe(2500);
     expect(JSON.stringify(body)).not.toContain("@");
     expect(body.balls.find((ball) => ball.ballNumber === 3)?.status).toBe("sold");
     expect(body.balls.find((ball) => ball.ballNumber === 6)?.status).toBe("selected");
