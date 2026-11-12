@@ -11,7 +11,7 @@ Four flows share one Worker, one D1 database, and the static pages in `public/`:
 1. **Purchase engine.** On `/`, a buyer picks a specific open ball, enters a name and email, and buys it in one step. The ball locks to sold inside one D1 batch, so a second buy of that ball is rejected. The purchase stores a fake Stripe test reference and does not call Stripe.
 2. **Customer purchase view.** After the buy, the same panel lists that email’s purchases and their status. `/purchase` looks them up again by email.
 3. **Email and ball records.** Every buy writes `ball_selections` (email plus ball) and `email_dispatches` (the receipt subject and body, beside that ball). `/selections` shows both. With no `RESEND_API_KEY`, or while `EMAIL_DELIVERY` is `dry_run`, the row is still stored and nothing is sent.
-4. **Admin offline sales.** `/admin` lets an administrator pick a ball for a name and email. It uses the same lock, purchase row, and email-and-ball row as an online buy, with `payment_mode` `offline_demo`. The request needs `Authorization: Bearer` matching `ADMIN_TOKEN`.
+4. **Admin offline sales.** `/admin` lets an administrator pick a ball for a name and email. It uses the same lock, purchase row, and email-and-ball row as an online buy, with `payment_mode` `offline_demo`. The page prefers a Google sign-in whose email is listed in `ADMIN_EMAILS`. `Authorization: Bearer` matching `ADMIN_TOKEN` still authorizes the admin API. Buyers do not sign in with Google to purchase a ball.
 
 Held and sold balls are shaded on the scrolling marquee and on the board. Open balls can be picked when `ALLOW_BALL_PICKING` is `true`.
 
@@ -43,7 +43,7 @@ Open `http://localhost:8787`.
 1. **Buy a ball.** On `/`, click a bright ball in the marquee (or open `/pick`). Continue to checkout, enter an email, and choose the test pay button. The card fields are disabled placeholders. The ball locks. Buying it again returns a conflict. Nothing is charged. Set `ALLOW_BALL_PICKING` to `false` and restart to try the quantity stepper instead.
 2. **See purchases.** After checkout, the test receipt links to `/purchase?email=you@example.com`, which lists that email’s balls and status.
 3. **See the email record.** Open `/selections?email=you@example.com`. Each row is that email plus the ball, and the stored receipt subject. The receipt is in D1 even when Resend is not called.
-4. **Record an offline sale.** Set `ADMIN_TOKEN` in `.dev.vars`, restart `wrangler dev`, open `/admin`, enter the token, a free ball number, and a name and email. That ball locks the same way.
+4. **Record an offline sale.** Either set `ADMIN_TOKEN` in `.dev.vars` and enter it on `/admin`, or set `ADMIN_EMAILS` plus the Google sign-in secrets below and sign in with a listed account. Enter a free ball number and a name and email. That ball locks the same way. A buyer can still check out with only the email on the purchase form.
 
 ```bash
 curl -s -X POST http://127.0.0.1:8787/api/purchases \
@@ -56,6 +56,8 @@ To try offline sales, copy the example env file and set a token only on your mac
 ```bash
 cp .dev.vars.example .dev.vars
 # then set ADMIN_TOKEN in .dev.vars
+# Google sign-in also needs ADMIN_EMAILS, GOOGLE_CLIENT_ID,
+# GOOGLE_CLIENT_SECRET, and SESSION_SECRET. Leave them blank to keep it off.
 ```
 
 `.dev.vars` is gitignored. Do not commit it.
@@ -68,10 +70,11 @@ This is what Brian would provide before a hosted demo. It is not done here.
 
 1. A Cloudflare account, and a review of Cloudflare’s current service terms, including the Self-Serve Subscription Agreement where it applies.
 2. A D1 database created with `wrangler d1 create`, then the printed `database_id` pasted over the placeholder in `wrangler.jsonc`. Apply the checked-in migrations to that database only when a deploy is intended.
-3. Wrangler secrets, set outside git. `wrangler secret put` publishes a Worker version, so treat it as a deploy. The names are `RESEND_API_KEY`, `STRIPE_SECRET_KEY`, and `ADMIN_TOKEN`. `STRIPE_SECRET_KEY` must stay empty or be a Stripe test key (`sk_test_`). Never put a live key (`sk_live_`, `rk_live_`, `pk_live_`) in the Worker. Leave `EMAIL_DELIVERY` as `dry_run` until a real Resend send is an intentional change. `ALLOW_BALL_PICKING` is a plain var, not a secret: `true` lets buyers pick a number, `false` assigns an open ball at random.
-4. DNS for `balls.bancroft.io`, on the Cloudflare zone Brian already controls, pointing at this Worker. Do not buy a domain for this demo.
-5. The appropriate British Columbia charitable gaming licence before any real money is taken. Until then the hosted copy stays a demonstration: test markers, no live charge, placeholder prices and prizes.
-6. Written permission before any official Kin Canada or Kinsmen Club of Ladysmith mark is added. The repo currently uses a text wordmark only.
+3. Wrangler secrets, set outside git. `wrangler secret put` publishes a Worker version, so treat it as a deploy. The names are `RESEND_API_KEY`, `STRIPE_SECRET_KEY`, `ADMIN_TOKEN`, `ADMIN_EMAILS`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `SESSION_SECRET`. `STRIPE_SECRET_KEY` must stay empty or be a Stripe test key (`sk_test_`). Never put a live key (`sk_live_`, `rk_live_`, `pk_live_`) in the Worker. Leave `EMAIL_DELIVERY` as `dry_run` until a real Resend send is an intentional change. `ALLOW_BALL_PICKING` is a plain var, not a secret: `true` lets buyers pick a number, `false` assigns an open ball at random. `ADMIN_EMAILS` is a comma-separated list of Google account emails (trimmed, compared without case). An empty list means nobody is an admin via Google. `ADMIN_TOKEN` remains the API fallback.
+4. A Google Cloud OAuth web client, only if admin sign-in should be on. Register both callback URLs: `http://localhost:8787/api/auth/google/callback` for local `wrangler dev`, and `https://balls.bancroft.io/api/auth/google/callback` for the future demo host. Also register the JavaScript origins `http://localhost:8787` and `https://balls.bancroft.io`. Put the client id, client secret, and a long random `SESSION_SECRET` in the secrets above. If those values are missing, `/api/auth/google` answers 503 and `/admin` keeps the token field. This repository does not create the Google client, deploy the Worker, or change DNS.
+5. DNS for `balls.bancroft.io`, on the Cloudflare zone Brian already controls, pointing at this Worker. Do not buy a domain for this demo. The callback URL above is documentation for that future host. Nothing here points DNS at it.
+6. The appropriate British Columbia charitable gaming licence before any real money is taken. Until then the hosted copy stays a demonstration: test markers, no live charge, placeholder prices and prizes.
+7. Written permission before any official Kin Canada or Kinsmen Club of Ladysmith mark is added. The repo currently uses a text wordmark only.
 
 ## Project layout
 
@@ -79,7 +82,10 @@ This is what Brian would provide before a hosted demo. It is not done here.
 | --- | --- |
 | `wrangler.jsonc` | Worker config, assets, D1 binding, non-secret vars, secret names |
 | `src/index.ts` | Worker entry |
-| `src/app.ts` | Hono routes for the four flows |
+| `src/app.ts` | Hono routes for the four flows and Google sign-in |
+| `src/auth.ts` | Admin token fallback and Google admin check |
+| `src/google-auth.ts` | Google OAuth start, callback, and sign-out |
+| `src/session.ts` | Signed session cookie |
 | `src/purchase-engine.ts` | Buy, hold, confirm, offline sale, and the email-and-ball queries |
 | `migrations/0003_email_records.sql` | Stores receipt subject and body on the email row, with the ball id |
 | `src/email/deliver.ts` | Dry-run by default; Resend only when delivery is switched on and a key exists |
@@ -109,8 +115,12 @@ API routes:
 | `POST /api/purchases/:id/cancel` | Release a hold. The email-and-ball row stays |
 | `GET /api/purchases?email=` | Customer purchase view |
 | `GET /api/selections?email=` | Email-and-ball records for that address |
-| `POST /api/admin/offline-sales` | Admin offline demo sale. `Authorization: Bearer` token |
-| `GET /api/admin/sales` | Recent records for the admin page |
+| `GET /api/auth/session` | Current Google session, if any. Does not require sign-in |
+| `GET /api/auth/google` | Start Google sign-in. 503 when the client is not configured |
+| `GET /api/auth/google/callback` | Google redirects here. Local: `http://localhost:8787/api/auth/google/callback`. Future host: `https://balls.bancroft.io/api/auth/google/callback` |
+| `POST /api/auth/logout` | Clear the session cookie |
+| `POST /api/admin/offline-sales` | Admin offline demo sale. Google admin session, or `Authorization: Bearer` token |
+| `GET /api/admin/sales` | Recent records for an admin |
 
 ## Compliance
 
