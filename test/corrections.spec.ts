@@ -1,5 +1,6 @@
 import { env, createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import { toCsv } from "../src/csv";
 import worker from "../src/index";
 import { SESSION_COOKIE, signSession } from "../src/session";
 
@@ -85,6 +86,114 @@ async function voidSale(purchaseId: string, reason: string, token: string | null
 }
 
 describe("admin sale corrections", () => {
+  it("prefixes spreadsheet formulas and quotes commas", () => {
+    const csv = toCsv([
+      ["name", "note"],
+      ["=1+1", 'Ada, "Bee"'],
+      ["+Ada", "-10"],
+      ["@SUM(A1)", "\t=cmd"],
+      [" safe", "Hello"],
+    ]);
+    expect(csv).toBe(
+      [
+        `"name","note"`,
+        `"'=1+1","Ada, ""Bee"""`,
+        `"'+Ada","'-10"`,
+        `"'@SUM(A1)","'\t=cmd"`,
+        `" safe","Hello"`,
+      ].join("\r\n") + "\r\n",
+    );
+    expect(csv).not.toContain(`"=1+1"`);
+    expect(csv).not.toContain(`"+Ada"`);
+    expect(csv).not.toContain(`"-10"`);
+    expect(csv).not.toContain(`"@SUM(A1)"`);
+  });
+
+  it("refuses record downloads without an admin and escapes formula cells", async () => {
+    const bought = await post("/api/purchases", {
+      email: "formula.export@example.com",
+      buyerName: "=1+1",
+      ballId: 2316,
+    });
+    expect(bought.status).toBe(201);
+    const sale = await bought.json<SaleBody>();
+    const voided = await voidSale(sale.purchase.id, "@SUM(A1)", TOKEN);
+    expect(voided.status).toBe(200);
+    const offline = await post(
+      "/api/admin/offline-sales",
+      { email: "plus.export@example.com", buyerName: "+Ada", ballId: 2317, note: "-10" },
+      TOKEN,
+    );
+    expect(offline.status).toBe(201);
+
+    for (const path of [
+      "/api/admin/exports/purchases.csv",
+      "/api/admin/exports/ball-selections.csv",
+      "/api/admin/exports/email-dispatches.csv",
+    ]) {
+      for (const authorization of [undefined, "Bearer wrong-token"]) {
+        const headers: Record<string, string> = {};
+        if (authorization) headers.authorization = authorization;
+        const denied = await call(path, { headers });
+        expect(denied.status, path).toBe(401);
+        expect(denied.headers.get("content-type") ?? "").not.toContain("text/csv");
+        const text = await denied.text();
+        expect(text).not.toContain("formula.export@example.com");
+        expect(text).not.toContain("plus.export@example.com");
+      }
+    }
+
+    const purchases = await call("/api/admin/exports/purchases.csv", {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(purchases.status).toBe(200);
+    expect(purchases.headers.get("content-type")).toContain("text/csv");
+    expect(purchases.headers.get("content-disposition")).toContain('attachment; filename="purchases.csv"');
+    const purchaseCsv = await purchases.text();
+    expect(purchaseCsv.split("\r\n")[0]).toContain('"payment_mode"');
+    expect(purchaseCsv.split("\r\n")[0]).toContain('"void_status"');
+    expect(purchaseCsv.split("\r\n")[0]).toContain('"attested_age_19"');
+    expect(purchaseCsv.split("\r\n")[0]).toContain('"attestation_text"');
+    const formulaLine = purchaseCsv.split("\r\n").find((line) => line.includes("formula.export@example.com"));
+    expect(formulaLine).toContain(`"'=1+1"`);
+    expect(formulaLine).toContain(`"stripe_test_fake"`);
+    expect(formulaLine).toContain(`"voided"`);
+    expect(formulaLine).toContain(`"'@SUM(A1)"`);
+    expect(formulaLine).toContain(`"buyer"`);
+    expect(formulaLine).not.toContain(`"=1+1"`);
+    expect(formulaLine).not.toContain(`"@SUM(A1)"`);
+    const plusLine = purchaseCsv.split("\r\n").find((line) => line.includes("plus.export@example.com"));
+    expect(plusLine).toContain(`"'+Ada"`);
+    expect(plusLine).toContain(`"'-10"`);
+    expect(plusLine).toContain(`"offline_demo"`);
+    expect(plusLine).toContain(`"not_voided"`);
+    expect(plusLine).not.toContain(`"+Ada"`);
+    expect(plusLine).not.toContain(`"-10"`);
+    expect(purchaseCsv).not.toContain(TOKEN);
+
+    const selections = await call("/api/admin/exports/ball-selections.csv", {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(selections.status).toBe(200);
+    const selectionCsv = await selections.text();
+    expect(selectionCsv.split("\r\n")[0]).toContain('"purchase_status"');
+    expect(selectionCsv.split("\r\n")[0]).toContain('"void_status"');
+    const selectionLine = selectionCsv.split("\r\n").find((line) => line.includes("formula.export@example.com"));
+    expect(selectionLine).toContain(`"voided"`);
+    expect(selectionLine).not.toContain(`"=1+1"`);
+
+    const dispatches = await call("/api/admin/exports/email-dispatches.csv", {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(dispatches.status).toBe(200);
+    const dispatchCsv = await dispatches.text();
+    expect(dispatchCsv.split("\r\n")[0]).toContain('"text_body"');
+    const dispatchLine = dispatchCsv.split("\r\n").find((line) => line.includes("formula.export@example.com"));
+    expect(dispatchLine).toBeTruthy();
+    expect(dispatchLine?.startsWith("=")).toBe(false);
+    expect(dispatchCsv).not.toContain(TOKEN);
+  });
+
   it("voids an online sale, keeps the purchase, and sells that ball again", async () => {
     const ballId = 2310;
     const sold = await sellOnline(ballId, "void.online@example.com");

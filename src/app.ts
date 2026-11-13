@@ -4,6 +4,7 @@ import { getCookie, setCookie } from "hono/cookie";
 import { assertAdmin } from "./auth";
 import { ADMIN_ATTESTATION_TEXT, BUYER_ATTESTATION_TEXT } from "./compliance";
 import { DISCLAIMER, googleSignInReady, readConfig } from "./config";
+import { dispatchesCsv, purchasesCsv, selectionsCsv } from "./exports";
 import { beginGoogleSignIn, clearSession, finishGoogleSignIn } from "./google-auth";
 import { HttpError, isMissingSchema, isRecord } from "./http";
 import { logError, logInfo } from "./log";
@@ -320,6 +321,18 @@ app.post("/api/admin/purchases/:id/void", async (c) => {
   return c.json({ purchase });
 });
 
+app.get("/api/admin/exports/purchases.csv", async (c) => {
+  return csvDownload(c, "purchases.csv", await purchasesCsv(c.env.DB));
+});
+
+app.get("/api/admin/exports/ball-selections.csv", async (c) => {
+  return csvDownload(c, "ball-selections.csv", await selectionsCsv(c.env.DB));
+});
+
+app.get("/api/admin/exports/email-dispatches.csv", async (c) => {
+  return csvDownload(c, "email-dispatches.csv", await dispatchesCsv(c.env.DB));
+});
+
 app.get("/api/admin/selections", async (c) => selectionsForAdmin(c));
 
 app.all("*", async (c) => {
@@ -351,6 +364,16 @@ app.onError((error, c) => {
   });
   return c.json({ error: "Something went wrong." }, 500);
 });
+
+function csvDownload(
+  c: { header: (name: string, value: string) => void; body: (data: string) => Response },
+  filename: string,
+  csv: string,
+): Response {
+  c.header("content-type", "text/csv; charset=utf-8");
+  c.header("content-disposition", `attachment; filename="${filename}"`);
+  return c.body(csv);
+}
 
 function originOf(c: { req: { url: string } }): string {
   return new URL(c.req.url).origin;

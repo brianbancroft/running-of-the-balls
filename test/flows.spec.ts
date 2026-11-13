@@ -754,6 +754,9 @@ describe("Running of the Balls demo", () => {
         path: "/api/admin/purchases/10000000-0000-4000-8000-000000000003/void",
         body: { reason: "Wrong ball recorded in the demo." },
       },
+      { method: "GET", path: "/api/admin/exports/purchases.csv" },
+      { method: "GET", path: "/api/admin/exports/ball-selections.csv" },
+      { method: "GET", path: "/api/admin/exports/email-dispatches.csv" },
     ];
     for (const route of routes) {
       for (const authorization of [undefined, "Bearer wrong-token", "Bearer"]) {
