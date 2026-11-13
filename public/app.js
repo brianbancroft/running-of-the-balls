@@ -121,6 +121,26 @@ async function releaseNumbers(numbers, balls) {
     }
     return picks;
 }
+function spokenState(state, status) {
+    if (state === "mine")
+        return "yours, held for payment";
+    if (state === "taken")
+        return "just taken";
+    if (state === "sold" && status === "selected")
+        return "held";
+    if (state === "sold")
+        return "sold";
+    return "open";
+}
+function stateTag(state, status) {
+    if (state === "taken")
+        return "Taken";
+    if (state === "sold" && status === "selected")
+        return "Held";
+    if (state === "sold")
+        return "Sold";
+    return null;
+}
 function paint(node, n, state, status) {
     const colour = ballColour(n);
     node.className = `ball ${state}`;
@@ -137,20 +157,23 @@ function paint(node, n, state, status) {
         yours.textContent = "Yours";
         node.append(yours);
     }
+    const tag = stateTag(state, status);
+    if (tag && node instanceof HTMLButtonElement) {
+        const mark = document.createElement("i");
+        mark.className = "state-tag";
+        mark.textContent = tag;
+        node.append(mark);
+    }
     if (node instanceof HTMLButtonElement) {
-        const label = state === "mine"
-            ? "yours"
-            : state === "taken"
-                ? "just taken"
-                : state === "sold" && status === "selected"
-                    ? "held"
-                    : state;
-        node.setAttribute("aria-label", `Ball ${ballNumber(n)}, ${label}`);
-        node.setAttribute("aria-pressed", state === "mine" ? "true" : "false");
-        if (state === "sold" || state === "taken")
+        node.setAttribute("aria-label", `Ball ${ballNumber(n)}, ${spokenState(state, status)}`);
+        if (state === "sold" || state === "taken") {
             node.setAttribute("aria-disabled", "true");
-        else
+            node.removeAttribute("aria-pressed");
+        }
+        else {
             node.removeAttribute("aria-disabled");
+            node.setAttribute("aria-pressed", state === "mine" ? "true" : "false");
+        }
     }
 }
 function say(text) {
@@ -287,34 +310,48 @@ function initHome(config, balls, total, free, soldOut) {
     if (pickable) {
         tilt.removeAttribute("aria-hidden");
         tilt.setAttribute("role", "group");
-        tilt.setAttribute("aria-label", "Balls. Arrow keys move between balls. Enter picks a free ball. Shaded balls are held or sold.");
+        tilt.setAttribute("aria-label", "Balls. Arrow keys move between balls. Enter picks an open ball. Shaded balls say held or sold.");
     }
     else {
         tilt.setAttribute("aria-hidden", "true");
     }
     let picks = readPicks();
     renderMarquee(tilt, balls, picks, soldOut, pickable);
+    const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
     const paused = readPaused();
-    if (paused)
+    if (paused || motionQuery.matches)
         field.classList.add("paused");
     const setMotion = () => {
         if (!(motion instanceof HTMLButtonElement))
             return;
-        const hovering = pickable && field.matches(":hover");
+        const reduce = motionQuery.matches;
+        field.classList.toggle("reduced-motion", reduce);
+        if (reduce)
+            field.classList.add("paused");
         motion.replaceChildren();
         const label = document.createElement("span");
-        label.textContent = field.classList.contains("paused")
-            ? "Motion paused"
-            : hovering
-                ? "Paused while you pick"
-                : "Pause motion";
+        const hovering = pickable && field.matches(":hover");
+        label.textContent = reduce
+            ? "Motion off"
+            : field.classList.contains("paused")
+                ? "Motion paused"
+                : hovering
+                    ? "Paused while you pick"
+                    : "Pause motion";
         const tog = document.createElement("span");
         tog.className = field.classList.contains("paused") ? "tog play" : "tog";
         motion.append(label, tog);
         motion.setAttribute("aria-pressed", field.classList.contains("paused") ? "true" : "false");
+        if (reduce)
+            motion.setAttribute("aria-disabled", "true");
+        else
+            motion.removeAttribute("aria-disabled");
     };
     setMotion();
+    motionQuery.addEventListener("change", setMotion);
     motion?.addEventListener("click", () => {
+        if (motionQuery.matches)
+            return;
         field.classList.toggle("paused");
         writePaused(field.classList.contains("paused"));
         setMotion();
@@ -329,12 +366,13 @@ function initHome(config, balls, total, free, soldOut) {
         const items = soldOut
             ? [["sold", "Held or sold"]]
             : pickable
-                ? [["available", "Available"], ["mine", "Yours"], ["sold", "Held or sold"]]
-                : [["available", "Available"], ["sold", "Held or sold"]];
+                ? [["available", "Open"], ["mine", "Yours"], ["sold", "Held or sold"]]
+                : [["available", "Open"], ["sold", "Held or sold"]];
         for (const [state, text] of items) {
             const span = document.createElement("span");
             span.className = "k";
             const ball = document.createElement("span");
+            ball.setAttribute("aria-hidden", "true");
             paint(ball, state === "sold" ? 6 : 5, state);
             span.append(ball, text);
             legend.append(span);
@@ -793,7 +831,7 @@ function initPick(config, balls, soldOut) {
             const block = Math.floor((n - 1) / 100) * 100 + 1;
             start = block;
             const status = balls.get(n)?.status;
-            const word = status === "selected" ? "held" : status === "sold" ? "sold" : "free";
+            const word = status === "selected" ? "held" : status === "sold" ? "sold" : "open";
             const blockEnd = Math.min(block + 99, highest);
             found.textContent = `${ballNumber(n)} is ${word}. It's in ${ballNumber(block)}–${ballNumber(blockEnd)}.`;
             draw();
