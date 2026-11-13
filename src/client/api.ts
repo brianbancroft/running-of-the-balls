@@ -39,6 +39,7 @@ export type Purchase = {
   };
   ball: Ball;
   emailRecord: { subject: string; sent: boolean; text: string | null } | null;
+  void: { at: string; reason: string; by?: string } | null;
 };
 
 type ApiError = { error?: string };
@@ -113,6 +114,56 @@ export function offlineSale(
 
 export function purchaseForToken(token: string): Promise<{ purchase: Purchase }> {
   return send(`/api/purchases?token=${encodeURIComponent(token)}`);
+}
+
+function adminHeaders(token: string, json = false): Record<string, string> {
+  const headers: Record<string, string> = { accept: json ? "application/json" : "text/csv" };
+  if (json) headers["content-type"] = "application/json";
+  if (token.trim()) headers.authorization = `Bearer ${token}`;
+  return headers;
+}
+
+export function listSales(token: string): Promise<{ purchases: Purchase[] }> {
+  return send("/api/admin/sales", { credentials: "same-origin", headers: adminHeaders(token, true) });
+}
+
+export function voidSale(
+  purchaseId: string,
+  reason: string,
+  token: string,
+): Promise<{ purchase: Purchase }> {
+  return send(`/api/admin/purchases/${encodeURIComponent(purchaseId)}/void`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: adminHeaders(token, true),
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function downloadCsv(filename: string, token: string): Promise<void> {
+  const response = await fetch(`/api/admin/exports/${encodeURIComponent(filename)}`, {
+    credentials: "same-origin",
+    headers: adminHeaders(token),
+  });
+  if (!response.ok) {
+    let message = "Download failed.";
+    try {
+      const payload = (await response.json()) as ApiError;
+      if (payload.error) message = payload.error;
+    } catch {
+      message = "Download failed.";
+    }
+    throw new Error(message);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 export type ReservationHold = {
@@ -196,6 +247,7 @@ export function selectionsFor(
     ballStatus: string;
     purchaseStatus: string;
     receiptToken: string;
+    voidReason: string | null;
     emailRecord: { subject: string; sent: boolean; text: string | null } | null;
   }>;
 }> {

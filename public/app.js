@@ -1,4 +1,4 @@
-import { buyBall, checkoutReservation, getBalls, getConfig, getReservation, getSession, holdReservation, offlineSale, purchaseForToken, releaseReservation, selectionsFor, } from "./api.js";
+import { buyBall, checkoutReservation, downloadCsv, getBalls, getConfig, getReservation, getSession, holdReservation, listSales, offlineSale, purchaseForToken, releaseReservation, selectionsFor, voidSale, } from "./api.js";
 import { ballColour, ballNumber, customerHoldSummary, marqueeNumbers, money } from "./format.js";
 import { readBuyer, readDeadline, readPaused, readPicks, readQty, readReceipt, writeBuyer, writeDeadline, writePaused, writePicks, writeQty, writeReceipt, fieldSeed, } from "./store.js";
 function inventoryOf(balls) {
@@ -1224,8 +1224,16 @@ function appendPurchase(results, purchase) {
     const title = document.createElement("h3");
     title.textContent = `Ball ${ballNumber(purchase.ball.ballNumber)}`;
     const status = document.createElement("p");
-    status.textContent = `${purchase.status} · ${purchase.paymentMode} · charged: no`;
+    status.textContent =
+        purchase.status === "voided"
+            ? `Voided. This ball is back in the pit. ${purchase.paymentMode}. Charged: no.`
+            : `${purchase.status} · ${purchase.paymentMode} · charged: no`;
     card.append(title, status);
+    if (purchase.status === "voided" && purchase.void?.reason) {
+        const why = document.createElement("p");
+        why.textContent = purchase.void.reason;
+        card.append(why);
+    }
     if (purchase.buyerName) {
         const who = document.createElement("p");
         who.textContent = purchase.buyerName;
@@ -1431,7 +1439,10 @@ async function initSelections() {
                 const title = document.createElement("h3");
                 title.textContent = `${selection.email} → Ball ${ballNumber(selection.ballNumber)}`;
                 const detail = document.createElement("p");
-                detail.textContent = `Ball ${selection.ballStatus}. Purchase ${selection.purchaseStatus}.`;
+                detail.textContent =
+                    selection.purchaseStatus === "voided"
+                        ? `Purchase voided. The record is kept and the ball is back in the pit. The ball is ${selection.ballStatus} now.${selection.voidReason ? ` ${selection.voidReason}` : ""}`
+                        : `Ball ${selection.ballStatus}. Purchase ${selection.purchaseStatus}.`;
                 const receipt = document.createElement("p");
                 receipt.textContent = selection.emailRecord
                     ? `Receipt “${selection.emailRecord.subject}” — ${selection.emailRecord.sent ? "sent" : "stored, not sent"}.`
@@ -1473,7 +1484,19 @@ async function initAdmin(balls) {
     if (!(tokenFallback instanceof HTMLDetailsElement))
         return;
     const tokenInput = form.querySelector("input[name='token']");
+    const correct = document.querySelector("#admin-correct");
+    const exports = document.querySelector("#admin-export");
+    const voidForm = document.querySelector("#void-form");
+    const voidStatus = document.querySelector("#void-status");
+    const sales = document.querySelector("#admin-sales");
+    const exportStatus = document.querySelector("#export-status");
     if (!(tokenInput instanceof HTMLInputElement))
+        return;
+    if (!(correct instanceof HTMLElement) || !(exports instanceof HTMLElement))
+        return;
+    if (!(voidForm instanceof HTMLFormElement) || !(voidStatus instanceof HTMLElement))
+        return;
+    if (!(sales instanceof HTMLElement) || !(exportStatus instanceof HTMLElement))
         return;
     const session = await readSession();
     const notice = authMessage(new URLSearchParams(location.search).get("auth"));
@@ -1495,7 +1518,7 @@ async function initAdmin(balls) {
             summary.textContent = "Admin token";
     }
     else if (!session.signedIn) {
-        gateCopy.textContent = `Sign in with Google to record an offline sale. A token still works if you have one.${notice}`;
+        gateCopy.textContent = `Sign in with Google to record or void a sale and download records. A token still works if you have one.${notice}`;
         google.hidden = false;
         signOut.hidden = true;
         tokenInput.required = true;
@@ -1508,13 +1531,104 @@ async function initAdmin(balls) {
         return;
     }
     else {
-        gateCopy.textContent = `Signed in as ${session.email}. This account can record offline demo sales.`;
+        gateCopy.textContent = `Signed in as ${session.email}. This account can record a sale, void one, and download the records.`;
         google.hidden = true;
         signOut.hidden = false;
         tokenFallback.hidden = true;
         tokenInput.required = false;
         tokenInput.value = "";
     }
+    correct.hidden = false;
+    exports.hidden = false;
+    const loadSales = () => {
+        sales.replaceChildren("Loading recent sales…");
+        void listSales(tokenInput.value)
+            .then((payload) => {
+            sales.replaceChildren();
+            if (payload.purchases.length === 0) {
+                sales.textContent = "No sales recorded yet.";
+                return;
+            }
+            for (const purchase of payload.purchases) {
+                const row = document.createElement("article");
+                const summary = document.createElement("p");
+                summary.textContent = `Ball ${ballNumber(purchase.ball.ballNumber)} · ${purchase.buyerEmail} · ${purchase.paymentMode} · ${purchase.status}`;
+                const id = document.createElement("code");
+                id.textContent = purchase.id;
+                row.append(summary, id);
+                if (purchase.status === "voided") {
+                    const why = document.createElement("p");
+                    why.className = "fine";
+                    why.textContent = purchase.void?.reason ? `Voided. ${purchase.void.reason}` : "Voided. The ball is back in the pit.";
+                    row.append(why);
+                }
+                else {
+                    const use = document.createElement("button");
+                    use.type = "button";
+                    use.className = "btn ghost sm";
+                    use.textContent = "Use this id";
+                    use.addEventListener("click", () => {
+                        const idInput = voidForm.querySelector("#void-id");
+                        const reasonInput = voidForm.querySelector("#void-reason");
+                        if (idInput instanceof HTMLInputElement)
+                            idInput.value = purchase.id;
+                        if (reasonInput instanceof HTMLTextAreaElement)
+                            reasonInput.focus();
+                    });
+                    row.append(use);
+                }
+                sales.append(row);
+            }
+        })
+            .catch((error) => {
+            sales.textContent = error instanceof Error ? error.message : "Recent sales could not be loaded.";
+        });
+    };
+    if (session?.admin || tokenInput.value.trim())
+        loadSales();
+    else
+        sales.textContent = "Enter the admin token to see recent sales.";
+    tokenInput.addEventListener("change", () => {
+        if (tokenInput.value.trim())
+            loadSales();
+    });
+    voidForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const data = new FormData(voidForm);
+        const purchaseId = String(data.get("purchaseId") ?? "").trim();
+        const reason = String(data.get("reason") ?? "").trim();
+        if (!purchaseId || !reason) {
+            voidStatus.textContent = "A purchase id and a reason are required.";
+            return;
+        }
+        voidStatus.textContent = "Voiding…";
+        void voidSale(purchaseId, reason, tokenInput.value)
+            .then((result) => {
+            voidStatus.textContent = `Ball ${ballNumber(result.purchase.ball.ballNumber)} is back in the pit. The purchase is voided, not deleted.`;
+            const ball = balls.get(result.purchase.ball.ballNumber);
+            if (ball)
+                ball.status = "available";
+            voidForm.reset();
+            loadSales();
+        })
+            .catch((error) => {
+            voidStatus.textContent = error instanceof Error ? error.message : "Could not void that sale.";
+        });
+    });
+    exports.addEventListener("click", (event) => {
+        const button = event.target instanceof Element ? event.target.closest("[data-export]") : null;
+        const filename = button?.dataset.export;
+        if (!filename)
+            return;
+        exportStatus.textContent = "Preparing the download…";
+        void downloadCsv(filename, tokenInput.value)
+            .then(() => {
+            exportStatus.textContent = `${filename} downloaded.`;
+        })
+            .catch((error) => {
+            exportStatus.textContent = error instanceof Error ? error.message : "Download failed.";
+        });
+    });
     const describe = () => {
         const n = Number(pick.value);
         const ball = balls.get(n);
@@ -1556,6 +1670,7 @@ async function initAdmin(balls) {
             const ball = balls.get(result.purchase.ball.ballNumber);
             if (ball)
                 ball.status = "sold";
+            loadSales();
         })
             .catch((error) => {
             note.textContent = error instanceof Error ? error.message : "Could not record that sale.";

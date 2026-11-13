@@ -359,7 +359,11 @@ button.ball{appearance:none;color:inherit;font:inherit}
 [hidden]{display:none !important}
 .admin-form{display:grid;gap:14px;max-width:520px;margin-top:24px;padding:28px}
 .admin-gate{display:grid;gap:14px;max-width:520px;margin-top:24px;padding:28px}
+.admin-form h2{font-size:22px;margin:0}
 .admin-form summary{font-weight:700;cursor:pointer}
+.admin-sales{display:grid;gap:14px}
+.admin-sales article{border-top:1px solid var(--border);padding-top:12px}
+.admin-sales code{display:block;font-size:13px;overflow-wrap:anywhere}
 .admin-form input:not([type=checkbox]),.admin-form textarea{width:100%;font:inherit;border:1.5px solid #D5CDC5;border-radius:12px;padding:12px 14px;background:#fff}
 .attest{display:flex;gap:12px;align-items:flex-start;margin-top:18px;font-size:15.5px;line-height:1.4;font-weight:600}
 .attest input{width:20px;height:20px;margin-top:2px;flex:none}

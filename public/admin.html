@@ -40,8 +40,29 @@
         <span>The buyer confirmed they are 19 or older and physically in British Columbia.</span>
       </label>
       <button class="btn red" type="submit">Record offline demo sale</button>
-      <p id="admin-status" class="fine"></p>
+      <p id="admin-status" class="fine" role="status"></p>
     </form>
+    <section id="admin-correct" class="panel admin-form" hidden>
+      <h2>Void a mistaken sale</h2>
+      <p class="fine">The purchase stays on the record and the ball goes back in the pit. A reason is required. This does not move money. The demo never charged a card.</p>
+      <form id="void-form">
+        <label for="void-id">Purchase id <input id="void-id" name="purchaseId" required spellcheck="false" autocomplete="off"></label>
+        <label for="void-reason">Reason <textarea id="void-reason" name="reason" maxlength="500" required placeholder="Why this sale should be undone."></textarea></label>
+        <button class="btn red" type="submit">Void this sale</button>
+        <p id="void-status" class="fine" role="status"></p>
+      </form>
+      <div id="admin-sales" class="admin-sales"></div>
+    </section>
+    <section id="admin-export" class="panel admin-form" hidden>
+      <h2>Download records</h2>
+      <p class="fine">Purchases include payment mode, the 19+ and in-BC attestation, and whether the sale was voided. The other two files are the ball selections and the stored receipts.</p>
+      <div class="ctas">
+        <button class="btn ghost sm" type="button" data-export="purchases.csv">Purchases</button>
+        <button class="btn ghost sm" type="button" data-export="ball-selections.csv">Ball selections</button>
+        <button class="btn ghost sm" type="button" data-export="email-dispatches.csv">Email dispatches</button>
+      </div>
+      <p id="export-status" class="fine" role="status"></p>
+    </section>
   </main>
   <script type="module" src="/app.js"></script>
 </body>
