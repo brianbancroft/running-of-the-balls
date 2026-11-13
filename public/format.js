@@ -24,7 +24,8 @@ export function ballColour(n) {
     const c = PALETTE[(n * 7 + Math.floor(n / 9)) % PALETTE.length] ?? PALETTE[0] ?? "#FFC234";
     return { c, hi: mix(c, "#FFFFFF", 0.45), lo: mix(c, "#000000", 0.28) };
 }
-// Public label for sequential_from_1. The pad is a placeholder, not a decided format.
+// Public label for sequential_from_1. The pad comes from config. The page
+// keeps a pending label until BALL_NUMBER_PAD_CONFIRMED is true.
 // 0 prints the integer. A longer number is not cut: 2500 stays 2500 when the pad is 3.
 let numberPad = 3;
 export function useBallNumberPad(pad) {

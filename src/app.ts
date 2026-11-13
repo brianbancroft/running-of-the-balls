@@ -50,6 +50,9 @@ const app = new Hono<{ Bindings: CloudflareBindings }>();
 app.use("*", async (c, next) => {
   const started = Date.now();
   try {
+    // Prizes, confirmed flags, and the other vars are checked before a page
+    // or purchase uses them. An invalid list refuses the request.
+    readConfig(c.env);
     await next();
   } finally {
     logInfo({
@@ -88,6 +91,8 @@ app.get("/api/config", (c) => {
     numbering: config.numbering,
     numberPad: config.numberPad,
     bundles: config.bundles,
+    prizes: config.prizes,
+    decisions: config.decisions,
     decisionsPending: config.decisionsPending,
     paymentMode: config.paymentMode,
     emailDelivery: config.emailDelivery,

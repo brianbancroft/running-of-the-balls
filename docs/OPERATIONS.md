@@ -12,19 +12,29 @@ The hosted demonstration is [https://balls.bancroft.io](https://balls.bancroft.i
 
 ## Open product decisions
 
-These are still unconfirmed. They live in one place: the plain vars in `wrangler.jsonc`, read by `src/config.ts`. The safe demo defaults are below. The pages and the stored receipt say the figures are pending a decision. Setting a var does not turn that label off, and it does not make the value a licence term.
+These are still unconfirmed. They live in one place: the plain vars in `wrangler.jsonc`, read by `src/config.ts`. The safe demo defaults are below. A filled-in value is not a licence term, and it does not take a payment.
 
-| Var | Demo default | What it does |
-| --- | --- | --- |
-| `BALL_NUMBERING` | `sequential_from_1` | The only scheme this demo implements. Stored numbers are the integers 1 through 2500 already in D1. Any other value refuses to start. This var does not renumber the database. |
-| `BALL_NUMBER_PAD` | `3` | Zero-padding on the public label. Ball 7 is shown as `007` on the page and in the receipt subject. `0` shows `7`. A longer number is not cut, so 2500 stays 2500. CSV files keep the integer. |
-| `DEMO_AMOUNT_CENTS` | `500` | Placeholder price for one ball, in Canadian cents. `500` is $5.00. It is not a ticket price. |
-| `BALL_BUNDLES` | `[]` | No bundles. A later entry is `{"quantity":5,"label":"Five balls"}` and costs that many times `DEMO_AMOUNT_CENTS`. A bundle cannot carry its own price. An invented price in the JSON refuses to start. |
-| `ALLOW_BALL_PICKING` | `true` | When a buyer may choose a ball. `true` lets them pick any open ball for the whole demo. `false` assigns an open ball at checkout and refuses a chosen number, including `POST /api/reservations`. There is no sale window or phase. |
+| Value | Demo default | Confirmed flag | What it does |
+| --- | --- | --- | --- |
+| `BALL_NUMBERING` | `sequential_from_1` | `BALL_NUMBERING_CONFIRMED` | The only scheme this demo implements. Stored numbers are the integers 1 through 2500 already in D1. Any other value refuses the request. This var does not renumber the database. Confirming it does not turn on another scheme. |
+| `BALL_NUMBER_PAD` | `3` | `BALL_NUMBER_PAD_CONFIRMED` | Zero-padding on the public label. Ball 7 is shown as `007` on the page and in the receipt subject. `0` shows `7`. A longer number is not cut, so 2500 stays 2500. CSV files keep the integer. |
+| `DEMO_AMOUNT_CENTS` | `500` | `DEMO_AMOUNT_CONFIRMED` | Placeholder price for one ball, in Canadian cents. `500` is $5.00. It is not a ticket price. Confirming it does not charge a card. `PAYMENT_MODE` stays `stripe_test_fake`. |
+| `BALL_BUNDLES` | `[]` | `BALL_BUNDLES_CONFIRMED` | No bundles. A later entry is `{"quantity":5,"label":"Five balls"}` and costs that many times `DEMO_AMOUNT_CENTS`. A bundle cannot carry its own price. An invented price in the JSON refuses the request. |
+| `ALLOW_BALL_PICKING` | `true` | `BALL_ASSIGNMENT_CONFIRMED` | When a buyer may choose a ball. `true` lets them pick any open ball for the whole demo. `false` assigns an open ball at checkout and refuses a chosen number, including `POST /api/reservations`. There is no sale window or phase. |
+| `PRIZE_PODIUM` | `$500`, `$300`, `$100` | `PRIZES_CONFIRMED` | JSON list of `{"place":"1st down","amount":"$500"}`, at most 8. The default amounts are past-year flavour, not this year's prizes. The home page labels them "Placeholder · prizes TBA" until the flag is `true`. `[]` lists none. Odds and claim rules are refused. |
 
-Prizes on the home page are labelled as placeholders. They are not these vars, and they are not this year's prize list.
+### Mark a decision confirmed
 
-Change a plain var in `wrangler.jsonc` for local `wrangler dev`. A hosted Worker only sees the change when someone deploys. This repository does not deploy.
+Each row above is two vars: the value, and a confirmed flag. The flag defaults to `false`, which keeps that decision's "pending a decision" label. Filling in the value does not turn the label off.
+
+1. Set the value var to what the club decided. For prizes, replace `PRIZE_PODIUM` with this year's list. Do not put odds or claim rules in it.
+2. Set that row's confirmed flag to the exact string `true`. `false`, empty, and any other word leave the decision pending. A value other than `true` or `false` refuses the request, so a typo such as `yes` does not silently confirm it.
+3. Leave every other confirmed flag at `false` until that decision is made. One confirmed price does not confirm numbering, bundles, assignment, or prizes.
+4. Change the vars in `wrangler.jsonc` for local `wrangler dev`, then restart. A hosted Worker only sees the change when someone deploys. This repository does not deploy.
+
+Confirming a flag does not enable a live charge, send email, or turn the demo into a licensed event.
+
+The gaming licence is not one of these flags. Leave `GAMING_LICENCE_NUMBER` empty until the club has a number. Empty shows "Demo, no licence. No real tickets are sold." on the rules page and in the footer. A non-empty number shows as `BC Gaming Event Licence #` plus that number. Do not invent a number. `GAMING_RULES_URL` empty keeps the rules link on the placeholder `/rules` page.
 
 ## Fresh Cloudflare account
 
@@ -76,7 +86,7 @@ Change a plain var in `wrangler.jsonc` for local `wrangler dev`. A hosted Worker
    npm run dev
    ```
 
-   Open `http://localhost:8787`. `npm run check` typechecks, audits dependency licenses, and runs the tests.
+   Open `http://localhost:8787`. `npm run check` compiles the client, regenerates binding types, typechecks, audits dependency licenses, and runs the tests.
 
 ## Resend
 
@@ -144,9 +154,9 @@ Receipt tokens are left out. A receipt link inside a stored email is written as 
 
 Do all of this before anyone pays. Doing part of it does not make the demo a sale.
 
-1. The club holds the British Columbia charitable gaming licence that actually applies, confirmed with its own counsel. Put that number in `GAMING_LICENCE_NUMBER`. Leave it empty until then. An empty number keeps the banner "Demo — not licensed, no real tickets sold." Do not invent a number. The demo ribbon stays even after a number is set. Setting a number does not enable real sales.
+1. The club holds the British Columbia charitable gaming licence that actually applies, confirmed with its own counsel. Put that number in `GAMING_LICENCE_NUMBER`. Leave it empty until then. An empty number keeps the notice "Demo, no licence. No real tickets are sold." on the rules page and in the footer. Do not invent a number. The demo ribbon stays even after a number is set. Setting a number does not enable real sales.
 2. Publish the real rules and point `GAMING_RULES_URL` at them, or replace `/rules`. Empty means the placeholder `/rules` page. House rules have to be posted where entries are sold. `/rules` does not state a price, a prize, odds, how a winner is chosen, or what happens to an unclaimed prize. Do not copy those in until the licence states them.
-3. The owner decides the numbering scheme, the ticket price, any bundles, and when a buyer may pick a ball instead of being assigned one. Set the vars in the table above to those decisions. The pages keep the "pending a decision" label until a later code change removes it, so a filled-in default is not mistaken for a licence term.
+3. The owner decides the numbering scheme, the number padding, the ticket price, any bundles, whether a buyer picks a ball or is assigned one, and this year's prizes. Set the value vars in the table above, then set that row's confirmed flag to `true`. A flag left at `false` keeps the "pending a decision" label for that decision only. See "Mark a decision confirmed" above. A confirmed value is still not a licence term.
 4. Leave Stripe in test/fake mode. There is no live payment integration. `DEMO_MODE` must stay `true`. The database forces `demo_only`. Turning on real card charges would be a new design, not a setting in this demo.
 5. If email will actually be sent, use the club's verified domain and put the club's identification and a current postal address in the receipt. The dry-run text names Ladysmith, British Columbia, and says no further demo messages are sent. It is a preview, not a mailing.
 6. Do not advertise the event before a licence is issued. Advertising for a licensed event uses the licence number in the form the terms require. This demo does not invent that line beyond the banner that appears when `GAMING_LICENCE_NUMBER` is set.

@@ -10,8 +10,8 @@
 </head>
 <body data-page="checkout">
   <div id="live" class="sr-only" aria-live="assertive"></div>
-  <div class="ribbon"><span class="pill">Demo</span> Payments run in Stripe test mode — no real charges. Prices and prizes shown are placeholders.</div>
-  <p class="licence-banner" data-licence-status role="status">Demo — not licensed, no real tickets sold.</p>
+  <div class="ribbon"><span class="pill">Demo</span> Payments run in Stripe test mode — no real charges. <span data-figure-note>Prices and prizes shown are placeholders.</span></div>
+  <p class="licence-banner" data-licence-status role="status">Demo, no licence. No real tickets are sold.</p>
   <div class="testband"><span class="tag">Test mode</span> This is a demo. Payments use Stripe test mode — no real money moves and no real card is charged.</div>
   <header class="site-head">
     <a class="brand" href="/"><img class="logo" src="/marks/kinsmen-club-of-ladysmith-trim.png" alt="Kinsmen Club of Ladysmith"><span class="wordmark"><span class="n">Running of <em>the Balls</em></span></span></a>
@@ -28,8 +28,8 @@
         <div class="alert kin" id="taken" hidden></div>
         <h2>Your order</h2>
         <div id="order"></div>
-        <div class="tot"><span>Total <span class="ph">Pending a decision</span></span><strong id="order-total"></strong></div>
-        <p class="fine" id="open-decisions" data-open-decisions>The price, bundles, numbering, and whether you pick a ball are pending a decision.</p>
+        <div class="tot"><span>Total <span class="ph" data-pending="price">Pending a decision</span></span><strong id="order-total"></strong></div>
+        <p class="fine" id="open-decisions" data-open-decisions>Pending a decision: the numbering scheme, how numbers are labelled, the ticket price, bundles, whether a buyer picks a number or is assigned one, and this year's prizes.</p>
         <a class="btn link" href="/pick">Back to picking</a>
       </div>
     </div>
@@ -71,7 +71,7 @@
       <a href="/">Back to the race</a>
     </div>
     <div class="fine">
-      <span data-licence-status>Demo — not licensed, no real tickets sold.</span>
+      <span data-licence-status>Demo, no licence. No real tickets are sold.</span>
       <span>Demo build · payments in Stripe test mode</span>
     </div>
   </footer>

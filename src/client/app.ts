@@ -19,6 +19,17 @@ import {
   type Reservation,
   type Session,
 } from "./api.js";
+import {
+  figurePlaceholderNote,
+  openDecisionCopy,
+  pendingSummary,
+  rulesPlaceholderCopy,
+  PRIZE_CONFIRMED_COPY,
+  PRIZE_PLACEHOLDER_BADGE,
+  PRIZE_PLACEHOLDER_COPY,
+  pricePendingOnReceiptRow,
+  type DecisionFlags,
+} from "./decisions.js";
 import { ballColour, ballNumber, customerHoldSummary, marqueeNumbers, money, useBallNumberPad } from "./format.js";
 import {
   readBuyer,
@@ -281,61 +292,147 @@ function ph(text: string): HTMLSpanElement {
   return node;
 }
 
-function decisionCopy(config: Config): string {
-  const sample = ballNumber(7);
-  const price = money(config.amountCents, config.currency);
-  const bundles =
-    config.bundles.length === 0
-      ? "No bundles are offered."
-      : `Bundles use that same placeholder price: ${config.bundles
-          .map((bundle) => `${bundle.label} (${bundle.quantity} balls, ${money(bundle.quantity * config.amountCents, config.currency)})`)
-          .join("; ")}.`;
-  const assignment =
-    config.assignment === "buyer_picks"
-      ? "This demo lets a buyer pick a specific ball for the whole sale."
-      : "This demo assigns an open ball at checkout and does not let a buyer pick a number.";
-  return `Pending a decision. Numbers run from 1 and ball 7 is shown as ${sample}. The price is ${price} a ball, not a ticket price. ${bundles} ${assignment}`;
+function bundleSummary(config: Config): string {
+  if (config.bundles.length === 0) return "none are offered";
+  return config.bundles
+    .map(
+      (bundle) =>
+        `${bundle.label} (${bundle.quantity} balls, ${money(bundle.quantity * config.amountCents, config.currency)})`,
+    )
+    .join("; ");
 }
 
 function paintOpenDecisions(config: Config): void {
-  if (!config.decisionsPending) return;
-  const copy = decisionCopy(config);
-  for (const node of document.querySelectorAll<HTMLElement>("#open-decisions p, [data-open-decisions]")) {
-    node.textContent = copy;
+  const copy = openDecisionCopy({
+    flags: config.decisions,
+    sampleNumber: ballNumber(7),
+    priceLabel: money(config.amountCents, config.currency),
+    bundleSummary: bundleSummary(config),
+    assignment: config.assignment,
+  });
+  for (const node of document.querySelectorAll<HTMLElement>("#open-decisions, [data-open-decisions]")) {
+    node.hidden = copy === null;
+    if (!copy) continue;
+    const paragraph = node.querySelector("p");
+    if (paragraph) paragraph.textContent = copy;
+    else node.textContent = copy;
   }
   const how = document.querySelector("#how-assign");
   if (how) {
-    how.textContent =
-      config.assignment === "buyer_picks"
-        ? "This demo lets you pick a number. Whether buyers keep that choice is not decided."
-        : "This demo hands you an open ball. Whether buyers may pick a number is not decided.";
+    if (config.decisions.assignment) {
+      how.textContent =
+        config.assignment === "buyer_picks"
+          ? "Every ball has its own number. You pick the one you want."
+          : "Every ball has its own number. An open ball is assigned to you at checkout.";
+    } else {
+      how.textContent =
+        config.assignment === "buyer_picks"
+          ? "This demo lets you pick a number. Whether buyers keep that choice is not decided."
+          : "This demo hands you an open ball. Whether buyers may pick a number is not decided.";
+    }
   }
+}
+
+const PENDING_KEYS: Record<string, keyof DecisionFlags> = {
+  numbering: "numbering",
+  numberPad: "numberPad",
+  price: "price",
+  bundles: "bundles",
+  assignment: "assignment",
+  prizes: "prizes",
+};
+
+function paintPending(config: Config): void {
+  for (const node of document.querySelectorAll<HTMLElement>("[data-pending]")) {
+    const key = node.dataset.pending ?? "";
+    const flag = PENDING_KEYS[key];
+    if (!flag) continue;
+    node.hidden = config.decisions[flag];
+  }
+  for (const node of document.querySelectorAll<HTMLElement>("[data-figure-note]")) {
+    const text = figurePlaceholderNote(config.decisions);
+    node.hidden = text.length === 0;
+    node.textContent = text;
+  }
+  for (const node of document.querySelectorAll<HTMLElement>("[data-pending-summary]")) {
+    node.textContent = pendingSummary(config.decisions);
+  }
+  for (const node of document.querySelectorAll<HTMLElement>("[data-rules-placeholder]")) {
+    node.textContent = rulesPlaceholderCopy(config.rulesUrl);
+  }
+}
+
+function paintPrizes(config: Config): void {
+  const copy = document.querySelector("#prize-copy");
+  if (copy) copy.textContent = config.decisions.prizes ? PRIZE_CONFIRMED_COPY : PRIZE_PLACEHOLDER_COPY;
+  const flag = document.querySelector("#prize-flag");
+  if (flag instanceof HTMLElement) {
+    flag.hidden = config.decisions.prizes;
+    flag.replaceChildren();
+    if (!config.decisions.prizes) flag.append(ph(PRIZE_PLACEHOLDER_BADGE));
+  }
+  const podium = document.querySelector("#podium");
+  if (!(podium instanceof HTMLElement)) return;
+  podium.replaceChildren();
+  if (config.prizes.length === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = config.decisions.prizes ? "No prizes are listed." : "No prize amounts are configured.";
+    podium.append(empty);
+    return;
+  }
+  config.prizes.forEach((prize, index) => {
+    const card = document.createElement("div");
+    card.className = index === 0 ? "pz first" : "pz";
+    const place = document.createElement("div");
+    place.className = "place";
+    place.textContent = prize.place;
+    const amount = document.createElement("div");
+    amount.className = "amt tnum";
+    amount.textContent = prize.amount;
+    card.append(place, amount);
+    podium.append(card);
+  });
 }
 
 function paintBundles(config: Config, apply: (quantity: number) => void): void {
   const host = document.querySelector("#bundles");
   if (!(host instanceof HTMLElement)) return;
   host.replaceChildren();
+  const bundlesPending = !config.decisions.bundles;
+  const pricePending = !config.decisions.price;
   if (config.assignment === "buyer_picks") {
     const note = document.createElement("p");
     note.className = "fine";
-    note.textContent =
-      config.bundles.length === 0
-        ? "No bundles. A multi-ball price has not been decided."
-        : "A bundle is that many balls at the placeholder price. Pick that many numbers.";
+    if (config.bundles.length === 0) {
+      if (bundlesPending) note.append("No bundles. ", ph("Pending a decision"));
+      else note.textContent = "No bundles.";
+    } else {
+      note.append(
+        pricePending
+          ? "A bundle is that many balls at the placeholder price. Pick that many numbers. "
+          : "A bundle is that many balls at the price above. Pick that many numbers. ",
+      );
+      if (bundlesPending) note.append(ph("Pending a decision"));
+    }
     host.append(note);
     return;
   }
   if (config.bundles.length === 0) {
     const note = document.createElement("p");
     note.className = "fine";
-    note.append("No bundles. ", ph("Pending a decision"));
+    if (bundlesPending) note.append("No bundles. ", ph("Pending a decision"));
+    else note.textContent = "No bundles.";
     host.append(note);
     return;
   }
   const note = document.createElement("p");
   note.className = "fine";
-  note.append("Bundles use the same placeholder price. ", ph("Pending a decision"));
+  if (bundlesPending || pricePending) {
+    note.append(pricePending ? "Bundles use the same placeholder price. " : "Bundles use the configured price. ");
+    if (bundlesPending) note.append(ph("Pending a decision"));
+  } else {
+    note.textContent = "Bundles use the configured price.";
+  }
   const row = document.createElement("div");
   row.className = "ctas";
   for (const bundle of config.bundles) {
@@ -354,6 +451,8 @@ async function boot(): Promise<void> {
   const [config, list] = await Promise.all([getConfig(), getBalls()]);
   useBallNumberPad(config.numberPad);
   paintOpenDecisions(config);
+  paintPending(config);
+  paintPrizes(config);
   const balls = inventoryOf(list);
   if (config.allowBallPicking && (page === "home" || page === "pick" || page === "checkout")) {
     try {
@@ -488,7 +587,7 @@ function initHome(config: Config, balls: Map<number, Ball>, total: number, free:
   if (soldLine) soldLine.textContent = `All ${countLabel} balls are shaded.`;
   const hero = document.querySelector("#hero-lede");
   if (hero) {
-    hero.textContent = `${countLabel} colourful balls, one steep street. Get a numbered ball, then watch it race down High Street — the first balls to the bottom win cash prizes.`;
+    hero.textContent = `${countLabel} colourful balls, one steep street. Get a numbered ball, then watch it race down High Street — the first balls to the bottom win the prizes.`;
   }
   if (bar instanceof HTMLElement) bar.style.width = `${total === 0 ? 0 : ((total - free) / total) * 100}%`;
 
@@ -518,7 +617,7 @@ function initHome(config: Config, balls: Map<number, Ball>, total: number, free:
   paintBundles(config, (quantity) => {
     qty = Math.min(maxQty, Math.max(1, quantity));
     drawQty();
-    say(`${qty} balls at the placeholder price.`);
+    say(config.decisions.price ? `${qty} balls.` : `${qty} balls at the placeholder price.`);
   });
   drawQty();
   qtyOut?.addEventListener("change", () => {
@@ -598,7 +697,11 @@ function initHome(config: Config, balls: Map<number, Ball>, total: number, free:
     const strong = document.createElement("strong");
     strong.textContent = money(picks.length * config.amountCents, config.currency);
     const meta = document.createElement("span");
-    meta.append(`${picks.length} × `, ph("Pending a decision"));
+    if (config.decisions.price) {
+      meta.textContent = `${picks.length} × ${money(config.amountCents, config.currency)}`;
+    } else {
+      meta.append(`${picks.length} × `, ph("Pending a decision"));
+    }
     const clock = document.createElement("span");
     clock.className = "hold-clock";
     clock.dataset.holdClock = "true";
@@ -814,7 +917,7 @@ function initPick(config: Config, balls: Map<number, Ball>, soldOut: boolean): v
     }
     const tot = document.createElement("div");
     tot.className = "tot";
-    tot.append(ph("Pending a decision"));
+    if (!config.decisions.price) tot.append(ph("Pending a decision"));
     const strong = document.createElement("strong");
     strong.textContent = money(picks.length * config.amountCents, config.currency);
     tot.append(strong);
@@ -1262,16 +1365,20 @@ function initConfirmation(config: Config): void {
     span.textContent = label;
     const strong = document.createElement("strong");
     strong.textContent = value;
-    strong.append(" ", ph("Pending a decision"));
+    if (pricePendingOnReceiptRow(label, config.decisions.price)) {
+      strong.append(" ", ph("Pending a decision"));
+    }
     row.append(span, strong);
     table.append(row);
   }
   const next = document.createElement("div");
   next.className = "next";
-  const steps = [
+    const steps = [
     "Save or screenshot your numbers so you know which balls to cheer for.",
     "A confirmation email isn't sent while this demo is in dry run.",
-    "Winners are the first balls to reach the bottom. Prizes will be posted before race day.",
+    config.decisions.prizes
+      ? "Winners are the first balls to reach the bottom. The prizes are listed on the home page."
+      : "Winners are the first balls to reach the bottom. Prizes will be posted before race day.",
   ];
   steps.forEach((text, index) => {
     const row = document.createElement("div");

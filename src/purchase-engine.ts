@@ -490,6 +490,7 @@ function receiptFor(row: JoinedRow, config: AppConfig, origin: string) {
     reference,
     amountCents: row.amount_cents,
     numberPad: config.numberPad,
+    priceConfirmed: config.decisions.price,
     kind: row.payment_mode === "offline_demo" ? "offline_demo" : "online_demo",
     receiptUrl: receiptLink(origin, row.receipt_token),
   });
@@ -623,6 +624,7 @@ export async function confirmDemoPurchase(
     reference: payment.stripeTestReference,
     amountCents: current.amount_cents,
     numberPad: config.numberPad,
+    priceConfirmed: config.decisions.price,
     kind: "online_demo",
     receiptUrl: receiptLink(origin, current.receipt_token),
   });
@@ -979,6 +981,7 @@ export async function sellFromReservation(
     reference: payment.stripeTestReference,
     amountCents: config.amountCents,
     numberPad: config.numberPad,
+    priceConfirmed: config.decisions.price,
     kind: "online_demo",
     receiptUrl: receiptLink(origin, receiptToken),
   });
@@ -1143,6 +1146,7 @@ export async function purchaseBall(
       reference: payment.stripeTestReference,
       amountCents: config.amountCents,
       numberPad: config.numberPad,
+    priceConfirmed: config.decisions.price,
       kind: "online_demo",
       receiptUrl: receiptLink(origin, receiptToken),
     });
@@ -1223,6 +1227,7 @@ export async function recordOfflineSale(
     reference: "offline demo record",
     amountCents: config.amountCents,
     numberPad: config.numberPad,
+    priceConfirmed: config.decisions.price,
     kind: "offline_demo",
     receiptUrl: receiptLink(origin, receiptToken),
   });

@@ -32,29 +32,44 @@
     "PAYMENT_MODE": "stripe_test_fake",
     "EMAIL_FROM": "Running of the Balls Demo <onboarding@resend.dev>",
     "PUBLIC_APP_NAME": "Ladysmith Kinsmen Running of the Balls",
-    // Open product decisions. The owner has not confirmed these. Safe demo
-    // defaults only. The pages say they are pending a decision. The confirmed
+    // Open product decisions. Safe demo defaults only. Each value has a
+    // *_CONFIRMED flag. Only the exact string "true" confirms that decision.
+    // "false", empty, or anything else leaves the "pending a decision" label
+    // on. A filled-in default is not the club's decision. The confirmed
     // catalogue is 2,500 balls in D1. That count is not a var.
     //
     // BALL_NUMBERING: sequential_from_1 is the only scheme implemented. It
     // matches the seeded numbers 1 through 2500 and does not renumber them.
-    // Any other value refuses to start.
+    // Any other value refuses to start. BALL_NUMBERING_CONFIRMED does not
+    // turn on another scheme.
     // BALL_NUMBER_PAD: zero-padding on the public label. 3 shows 7 as 007.
     // 0 shows 7. A longer number is not cut, so 2500 stays 2500.
     // DEMO_AMOUNT_CENTS: placeholder price for one ball, in Canadian cents.
-    // 500 is $5.00 and is not a ticket price.
+    // 500 is $5.00 and is not a ticket price. Confirming it does not charge
+    // a card. PAYMENT_MODE stays stripe_test_fake.
     // BALL_BUNDLES: JSON list. [] means no bundles. An entry is
     // {"quantity":5,"label":"Five balls"} and costs that many times
     // DEMO_AMOUNT_CENTS. A bundle cannot carry its own price.
     // ALLOW_BALL_PICKING: when a buyer may choose a ball. "true" lets them
     // pick any open ball for the whole demo. "false" assigns an open ball and
     // refuses a chosen number, including a reservation hold. There is no sale
-    // window. The club has not decided which to use.
+    // window.
+    // PRIZE_PODIUM: JSON list of {place, amount} display text, at most 8.
+    // The default is past-year flavour ($500, $300, $100), not this year's
+    // prizes. [] lists none. An entry cannot carry odds or claim rules.
+    // PRIZES_CONFIRMED stays "false" until the club decides this year's list.
     "BALL_NUMBERING": "sequential_from_1",
     "BALL_NUMBER_PAD": "3",
     "DEMO_AMOUNT_CENTS": "500",
     "BALL_BUNDLES": "[]",
     "ALLOW_BALL_PICKING": "true",
+    "PRIZE_PODIUM": "[{\"place\":\"1st down\",\"amount\":\"$500\"},{\"place\":\"2nd down\",\"amount\":\"$300\"},{\"place\":\"3rd down\",\"amount\":\"$100\"}]",
+    "BALL_NUMBERING_CONFIRMED": "false",
+    "BALL_NUMBER_PAD_CONFIRMED": "false",
+    "DEMO_AMOUNT_CONFIRMED": "false",
+    "BALL_BUNDLES_CONFIRMED": "false",
+    "BALL_ASSIGNMENT_CONFIRMED": "false",
+    "PRIZES_CONFIRMED": "false",
     // Plain vars, not secrets. Leave the licence number empty until the club
     // has one. An empty number shows the unlicensed demo banner. An empty
     // rules URL points at the placeholder /rules page. Do not invent either.

@@ -1,17 +1,23 @@
+import { anyDecisionPending, type DecisionFlags, type Prize } from "./client/decisions";
 import { licenceNotice } from "./compliance";
 import { HttpError, isRecord } from "./http";
 import { liveStripeKeyReason } from "./payments/stripe-test";
 import { parseEmail } from "./validation";
 
-// Open product decisions. The owner has not confirmed these. The values below
-// are safe demo defaults from wrangler vars. The pages keep a "pending a
-// decision" label until a later change removes it. Do not treat a default as
-// the club's numbering, ticket price, bundle, or pick-versus-assign rule.
+// Open product decisions. The values in wrangler vars are safe demo defaults.
+// Each decision also has a *_CONFIRMED var. Only the exact string "true"
+// confirms it. The pages keep a "pending a decision" label for each decision
+// that is still false. Filling in a value does not confirm it. Do not treat a
+// default as the club's numbering, ticket price, bundle, pick-versus-assign
+// rule, or this year's prizes.
 //
 // Confirmed, and not configured here: 2,500 balls in the catalogue, no cap on
 // how many balls one checkout may buy, and the beneficiary sentence (a
 // fundraiser for the Kinsmen Club of Ladysmith for an upcoming infrastructure
 // project). The ball count is the rows in `balls`, not a var.
+//
+// readConfig runs on every request this Worker handles. A prize list or
+// confirmed flag it cannot read refuses that request.
 
 export type BallNumbering = "sequential_from_1";
 export type BallAssignment = "buyer_picks" | "assigned";
@@ -31,8 +37,10 @@ export type AppConfig = {
   numbering: BallNumbering;
   numberPad: number;
   bundles: BallBundle[];
-  // Stays true while numbering, price, bundles, and assignment are unconfirmed.
-  decisionsPending: true;
+  prizes: Prize[];
+  decisions: DecisionFlags;
+  // True while any open decision is still unconfirmed.
+  decisionsPending: boolean;
   emailDelivery: "dry_run" | "resend";
   paymentMode: "stripe_test_fake";
   amountCents: number;
@@ -97,7 +105,16 @@ export function readConfig(env: CloudflareBindings): AppConfig {
   const numbering = readNumbering(env.BALL_NUMBERING);
   const numberPad = readNumberPad(env.BALL_NUMBER_PAD);
   const bundles = parseBundles(env.BALL_BUNDLES);
+  const prizes = parsePrizes(env.PRIZE_PODIUM);
   const allowBallPicking = env.ALLOW_BALL_PICKING === "true";
+  const decisions: DecisionFlags = {
+    numbering: readConfirmed("BALL_NUMBERING_CONFIRMED", env.BALL_NUMBERING_CONFIRMED),
+    numberPad: readConfirmed("BALL_NUMBER_PAD_CONFIRMED", env.BALL_NUMBER_PAD_CONFIRMED),
+    price: readConfirmed("DEMO_AMOUNT_CONFIRMED", env.DEMO_AMOUNT_CONFIRMED),
+    bundles: readConfirmed("BALL_BUNDLES_CONFIRMED", env.BALL_BUNDLES_CONFIRMED),
+    assignment: readConfirmed("BALL_ASSIGNMENT_CONFIRMED", env.BALL_ASSIGNMENT_CONFIRMED),
+    prizes: readConfirmed("PRIZES_CONFIRMED", env.PRIZES_CONFIRMED),
+  };
 
   if (!/^[^<>\r\n]+ <[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+>$/.test(env.EMAIL_FROM)) {
     throw new HttpError(500, "EMAIL_FROM must look like Name <email@domain>.");
@@ -114,7 +131,9 @@ export function readConfig(env: CloudflareBindings): AppConfig {
     numbering,
     numberPad,
     bundles,
-    decisionsPending: true,
+    prizes,
+    decisions,
+    decisionsPending: anyDecisionPending(decisions),
     emailDelivery: delivery,
     paymentMode: "stripe_test_fake",
     amountCents,
@@ -197,6 +216,62 @@ export function parseBundles(value: string | undefined): BallBundle[] {
   }
   bundles.sort((left, right) => left.quantity - right.quantity);
   return bundles;
+}
+
+function readConfirmed(name: string, value: string | undefined): boolean {
+  const trimmed = value?.trim() ?? "";
+  if (trimmed === "" || trimmed === "false") return false;
+  if (trimmed === "true") return true;
+  throw new HttpError(500, `${name} must be true or false. Leave it false until that decision is confirmed.`);
+}
+
+const PRIZE_KEYS = new Set(["place", "amount"]);
+
+export function parsePrizes(value: string | undefined): Prize[] {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) {
+    throw new HttpError(500, "PRIZE_PODIUM must be a JSON list of prizes. Use [] when none are listed.");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new HttpError(500, "PRIZE_PODIUM must be a JSON list of prizes, or [].");
+  }
+  if (!Array.isArray(parsed) || parsed.length > 8) {
+    throw new HttpError(500, "PRIZE_PODIUM must be a JSON list of at most 8 prizes.");
+  }
+  const prizes: Prize[] = [];
+  const seen = new Set<string>();
+  for (const item of parsed) {
+    if (!isRecord(item)) {
+      throw new HttpError(500, "PRIZE_PODIUM entries must be objects with a place and an amount.");
+    }
+    for (const key of Object.keys(item)) {
+      if (!PRIZE_KEYS.has(key)) {
+        throw new HttpError(
+          500,
+          "PRIZE_PODIUM entries are a place and an amount. Odds and claim rules are not set here.",
+        );
+      }
+    }
+    const place = readPrizeText(item.place, "place");
+    const amount = readPrizeText(item.amount, "amount");
+    const key = place.toLowerCase();
+    if (seen.has(key)) throw new HttpError(500, "PRIZE_PODIUM places must be unique.");
+    seen.add(key);
+    prizes.push({ place, amount });
+  }
+  return prizes;
+}
+
+function readPrizeText(value: unknown, field: "place" | "amount"): string {
+  if (typeof value !== "string") throw new HttpError(500, `PRIZE_PODIUM ${field} must be text.`);
+  const text = value.replace(/[\r\n\t]+/g, " ").trim();
+  if (text.length < 1 || text.length > 40 || /[\u0000-\u001f<>]/.test(text)) {
+    throw new HttpError(500, `PRIZE_PODIUM ${field} must be 40 characters or fewer, with no HTML.`);
+  }
+  return text;
 }
 
 function readLicenceNumber(value: string | undefined): string | null {

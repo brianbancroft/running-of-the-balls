@@ -1,3 +1,5 @@
+import type { DecisionFlags, Prize } from "./decisions.js";
+
 export type BallStatus = "available" | "selected" | "sold";
 
 export type Ball = {
@@ -17,6 +19,8 @@ export type Config = {
   numbering: string;
   numberPad: number;
   bundles: BallBundle[];
+  prizes: Prize[];
+  decisions: DecisionFlags;
   decisionsPending: boolean;
   amountCents: number;
   currency: string;

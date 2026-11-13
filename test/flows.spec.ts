@@ -176,6 +176,117 @@ describe("Running of the Balls demo", () => {
     expect(rulesHtml).toContain(UNLICENSED_BANNER);
     expect(rulesHtml).toContain("None of those are stated on this page.");
     expect(rulesHtml).not.toMatch(/\$\d/);
+    expect(rulesHtml).toContain("Demo, no licence. No real tickets are sold.");
+    expect(rulesHtml.match(/data-licence-status/g)?.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("reads placeholder prizes and confirms one decision at a time", async () => {
+    const podium =
+      '[{"place":"1st down","amount":"$500"},{"place":"2nd down","amount":"$300"},{"place":"3rd down","amount":"$100"}]';
+    const defaults = {
+      PRIZE_PODIUM: podium,
+      BALL_NUMBERING_CONFIRMED: "false",
+      BALL_NUMBER_PAD_CONFIRMED: "false",
+      DEMO_AMOUNT_CONFIRMED: "false",
+      BALL_BUNDLES_CONFIRMED: "false",
+      BALL_ASSIGNMENT_CONFIRMED: "false",
+      PRIZES_CONFIRMED: "false",
+    };
+    try {
+      const response = await call("/api/config");
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        prizes: [
+          { place: "1st down", amount: "$500" },
+          { place: "2nd down", amount: "$300" },
+          { place: "3rd down", amount: "$100" },
+        ],
+        decisions: {
+          numbering: false,
+          numberPad: false,
+          price: false,
+          bundles: false,
+          assignment: false,
+          prizes: false,
+        },
+        decisionsPending: true,
+      });
+
+      const home = await call("/");
+      expect(home.status).toBe(200);
+      const homeHtml = await home.text();
+      expect(homeHtml).toContain("Placeholder · prizes TBA");
+      expect(homeHtml).toContain('id="podium"');
+      expect(homeHtml).not.toContain("$500");
+      expect(homeHtml).not.toContain("$300");
+      expect(homeHtml).not.toContain("$100");
+
+      const price = await callAs("/api/config", undefined, { ...defaults, DEMO_AMOUNT_CONFIRMED: "true" });
+      expect(price.status).toBe(200);
+      expect(await price.json()).toMatchObject({
+        amountCents: 500,
+        decisions: { price: true, prizes: false, numbering: false, bundles: false },
+        decisionsPending: true,
+      });
+
+      const blank = await callAs("/api/config", undefined, { ...defaults, DEMO_AMOUNT_CONFIRMED: "  " });
+      expect(await blank.json()).toMatchObject({ decisions: { price: false }, decisionsPending: true });
+
+      const typo = await callAs("/api/config", undefined, { ...defaults, PRIZES_CONFIRMED: "yes" });
+      expect(typo.status).toBe(500);
+
+      const odds = await callAs("/api/config", undefined, {
+        ...defaults,
+        PRIZE_PODIUM: '[{"place":"1st down","amount":"$1","odds":"1 in 2500"}]',
+      });
+      expect(odds.status).toBe(500);
+
+      const health = await callAs("/api/health", undefined, { ...defaults, PRIZE_PODIUM: "not-json" });
+      expect(health.status).toBe(500);
+      const page = await callAs("/rules", undefined, { ...defaults, PRIZE_PODIUM: "not-json" });
+      expect(page.status).toBe(500);
+
+      const custom = await callAs("/api/config", undefined, {
+        ...defaults,
+        PRIZE_PODIUM: '[{"place":"First down","amount":"A hamper"}]',
+        PRIZES_CONFIRMED: "true",
+        BALL_NUMBERING_CONFIRMED: "true",
+        BALL_NUMBER_PAD_CONFIRMED: "true",
+        DEMO_AMOUNT_CONFIRMED: "true",
+        BALL_BUNDLES_CONFIRMED: "true",
+        BALL_ASSIGNMENT_CONFIRMED: "true",
+      });
+      expect(custom.status).toBe(200);
+      expect(await custom.json()).toMatchObject({
+        prizes: [{ place: "First down", amount: "A hamper" }],
+        decisionsPending: false,
+        licensed: false,
+        licenceStatus: UNLICENSED_BANNER,
+      });
+
+      const bought = await callAs(
+        "/api/purchases",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            email: "price.confirmed@example.com",
+            buyerName: "Ada",
+            ballId: 2310,
+            attestAge19: true,
+            attestInBc: true,
+          }),
+        },
+        { ...defaults, DEMO_AMOUNT_CONFIRMED: "true" },
+      );
+      expect(bought.status).toBe(201);
+      const boughtBody = await bought.json<{ email: { preview: { text: string } } }>();
+      expect(boughtBody.email.preview.text.toLowerCase()).toContain("no payment was taken");
+      expect(boughtBody.email.preview.text).toContain("demonstration amount, not a charge");
+      expect(boughtBody.email.preview.text).not.toContain("pending a decision");
+    } finally {
+      await callAs("/api/config", undefined, defaults);
+    }
   });
 
   it("serves the pages without a Google Fonts request", async () => {
@@ -588,6 +699,7 @@ describe("Running of the Balls demo", () => {
       reference: "cs_test_fake_demo",
       amountCents: 2000,
       numberPad: 3,
+      priceConfirmed: false,
       kind: "online_demo",
       receiptUrl: "http://example.com/purchase?token=abc",
     });
