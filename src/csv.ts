@@ -1,4 +1,6 @@
-const FORMULA = /^[\t\r\n ]*[=+\-@]/;
+// Spreadsheet formula cells, including a leading tab or carriage return.
+// A leading space or newline only counts when a formula character follows.
+const FORMULA = /^[\t\r]|[\t\r\n ]*[=+\-@]/;
 
 export function csvField(value: unknown): string {
   const text = value == null ? "" : String(value);

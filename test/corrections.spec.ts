@@ -92,6 +92,7 @@ describe("admin sale corrections", () => {
       ["=1+1", 'Ada, "Bee"'],
       ["+Ada", "-10"],
       ["@SUM(A1)", "\t=cmd"],
+      ["\tHello", "\r=1"],
       [" safe", "Hello"],
     ]);
     expect(csv).toBe(
@@ -100,6 +101,7 @@ describe("admin sale corrections", () => {
         `"'=1+1","Ada, ""Bee"""`,
         `"'+Ada","'-10"`,
         `"'@SUM(A1)","'\t=cmd"`,
+        `"'\tHello","'\r=1"`,
         `" safe","Hello"`,
       ].join("\r\n") + "\r\n",
     );
@@ -150,6 +152,8 @@ describe("admin sale corrections", () => {
     expect(purchases.headers.get("content-type")).toContain("text/csv");
     expect(purchases.headers.get("content-disposition")).toContain('attachment; filename="purchases.csv"');
     const purchaseCsv = await purchases.text();
+    expect(purchaseCsv.split("\r\n")[0]).not.toContain('"receipt_token"');
+    expect(purchaseCsv).not.toContain(sale.purchase.receiptToken);
     expect(purchaseCsv.split("\r\n")[0]).toContain('"payment_mode"');
     expect(purchaseCsv.split("\r\n")[0]).toContain('"void_status"');
     expect(purchaseCsv.split("\r\n")[0]).toContain('"attested_age_19"');
@@ -176,6 +180,8 @@ describe("admin sale corrections", () => {
     });
     expect(selections.status).toBe(200);
     const selectionCsv = await selections.text();
+    expect(selectionCsv.split("\r\n")[0]).not.toContain('"receipt_token"');
+    expect(selectionCsv).not.toContain(sale.purchase.receiptToken);
     expect(selectionCsv.split("\r\n")[0]).toContain('"purchase_status"');
     expect(selectionCsv.split("\r\n")[0]).toContain('"void_status"');
     const selectionLine = selectionCsv.split("\r\n").find((line) => line.includes("formula.export@example.com"));
@@ -191,6 +197,8 @@ describe("admin sale corrections", () => {
     const dispatchLine = dispatchCsv.split("\r\n").find((line) => line.includes("formula.export@example.com"));
     expect(dispatchLine).toBeTruthy();
     expect(dispatchLine?.startsWith("=")).toBe(false);
+    expect(dispatchLine).toContain("/purchase?token=redacted");
+    expect(dispatchCsv).not.toContain(sale.purchase.receiptToken);
     expect(dispatchCsv).not.toContain(TOKEN);
   });
 
@@ -306,6 +314,7 @@ describe("admin sale corrections", () => {
         headers: {
           cookie: `${SESSION_COOKIE}=${cookie}`,
           "content-type": "application/json",
+          origin: "http://example.com",
         },
         body: JSON.stringify({ reason: "The name on the table slip was wrong." }),
       },

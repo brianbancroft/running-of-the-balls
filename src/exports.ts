@@ -13,7 +13,6 @@ const PURCHASE_COLUMNS = [
   "currency",
   "stripe_test_reference",
   "offline_note",
-  "receipt_token",
   "attested_age_19",
   "attested_in_bc",
   "attested_at",
@@ -37,7 +36,6 @@ const SELECTION_COLUMNS = [
   "purchase_id",
   "purchase_status",
   "void_status",
-  "receipt_token",
   "created_at",
 ] as const;
 
@@ -59,12 +57,17 @@ function shownStatus(status: string, voidedAt: string | null): string {
   return voidedAt ? "voided" : status;
 }
 
+function redactReceiptSecrets(value: string | null): string | null {
+  if (value == null) return null;
+  return value.replace(/\/purchase\?token=[0-9a-f]{64}/gi, "/purchase?token=redacted");
+}
+
 export async function purchasesCsv(db: D1Database): Promise<string> {
   const result = await db
     .prepare(
       `SELECT
          p.id, p.buyer_email, p.buyer_name, p.status, p.payment_mode, p.voided_at,
-         p.amount_cents, p.currency, p.stripe_test_reference, p.offline_note, p.receipt_token,
+         p.amount_cents, p.currency, p.stripe_test_reference, p.offline_note,
          p.attested_age_19, p.attested_in_bc, p.attested_at, p.attested_by, p.attestation_text,
          p.void_reason, p.voided_by, s.ball_id, b.ball_number, p.created_at, p.updated_at
        FROM purchases p
@@ -83,7 +86,6 @@ export async function purchasesCsv(db: D1Database): Promise<string> {
       currency: string;
       stripe_test_reference: string | null;
       offline_note: string | null;
-      receipt_token: string | null;
       attested_age_19: number;
       attested_in_bc: number;
       attested_at: string | null;
@@ -107,7 +109,6 @@ export async function purchasesCsv(db: D1Database): Promise<string> {
     row.currency,
     row.stripe_test_reference,
     row.offline_note,
-    row.receipt_token,
     row.attested_age_19,
     row.attested_in_bc,
     row.attested_at,
@@ -129,7 +130,7 @@ export async function selectionsCsv(db: D1Database): Promise<string> {
     .prepare(
       `SELECT
          s.id, s.email, s.ball_id, b.ball_number, b.status AS ball_status,
-         s.purchase_id, p.status AS purchase_status, p.voided_at, p.receipt_token, s.created_at
+         s.purchase_id, p.status AS purchase_status, p.voided_at, s.created_at
        FROM ball_selections s
        JOIN purchases p ON p.id = s.purchase_id
        JOIN balls b ON b.id = s.ball_id
@@ -144,7 +145,6 @@ export async function selectionsCsv(db: D1Database): Promise<string> {
       purchase_id: string;
       purchase_status: string;
       voided_at: string | null;
-      receipt_token: string | null;
       created_at: string;
     }>();
   const rows: Cell[][] = result.results.map((row) => [
@@ -156,7 +156,6 @@ export async function selectionsCsv(db: D1Database): Promise<string> {
     row.purchase_id,
     shownStatus(row.purchase_status, row.voided_at),
     row.voided_at ? "voided" : "not_voided",
-    row.receipt_token,
     row.created_at,
   ]);
   return toCsv([Array.from(SELECTION_COLUMNS), ...rows]);
@@ -189,8 +188,8 @@ export async function dispatchesCsv(db: D1Database): Promise<string> {
     row.ball_id,
     row.to_email,
     row.subject,
-    row.text_body,
-    row.html_body,
+    redactReceiptSecrets(row.text_body),
+    redactReceiptSecrets(row.html_body),
     row.mode,
     row.status,
     row.created_at,
