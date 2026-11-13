@@ -1,6 +1,6 @@
 import { env, createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { toCsv } from "../src/csv";
+import { csvField, toCsv } from "../src/csv";
 import worker from "../src/index";
 import { SESSION_COOKIE, signSession } from "../src/session";
 
@@ -109,6 +109,26 @@ describe("admin sale corrections", () => {
     expect(csv).not.toContain(`"+Ada"`);
     expect(csv).not.toContain(`"-10"`);
     expect(csv).not.toContain(`"@SUM(A1)"`);
+    expect(
+      toCsv([
+        ["email", "id", "body"],
+        [
+          "buyer@example.com",
+          "10000000-0000-4000-8000-000000000003",
+          "Ladysmith\nbuyer@example.com",
+        ],
+      ]),
+    ).toBe(
+      [
+        `"email","id","body"`,
+        `"buyer@example.com","10000000-0000-4000-8000-000000000003","Ladysmith\nbuyer@example.com"`,
+      ].join("\r\n") + "\r\n",
+    );
+    expect(csvField("2026-11-01T16:00:00.000Z")).toBe(`"2026-11-01T16:00:00.000Z"`);
+    expect(csvField("foo=bar")).toBe(`"foo=bar"`);
+    expect(csvField(" -10")).toBe(`"' -10"`);
+    expect(csvField("\n=1")).toBe(`"'\n=1"`);
+    expect(csvField("\nHello")).toBe(`"\nHello"`);
   });
 
   it("refuses record downloads without an admin and escapes formula cells", async () => {
@@ -159,6 +179,10 @@ describe("admin sale corrections", () => {
     expect(purchaseCsv.split("\r\n")[0]).toContain('"attested_age_19"');
     expect(purchaseCsv.split("\r\n")[0]).toContain('"attestation_text"');
     const formulaLine = purchaseCsv.split("\r\n").find((line) => line.includes("formula.export@example.com"));
+    expect(formulaLine).toContain(`"formula.export@example.com"`);
+    expect(formulaLine).not.toContain(`"'formula.export@example.com"`);
+    expect(formulaLine).toContain(`"${sale.purchase.id}"`);
+    expect(formulaLine).not.toContain(`"'${sale.purchase.id}"`);
     expect(formulaLine).toContain(`"'=1+1"`);
     expect(formulaLine).toContain(`"stripe_test_fake"`);
     expect(formulaLine).toContain(`"voided"`);

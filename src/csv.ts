@@ -1,6 +1,8 @@
-// Spreadsheet formula cells, including a leading tab or carriage return.
-// A leading space or newline only counts when a formula character follows.
-const FORMULA = /^[\t\r]|[\t\r\n ]*[=+\-@]/;
+// A spreadsheet treats a cell as a formula only from its first character.
+// Tab or carriage return counts on its own. Space or newline counts only when
+// =, +, -, or @ follows. A hyphen, @, or = later in the cell is ordinary text,
+// so emails, ids, and dates stay as written.
+const FORMULA = /^(?:[\t\r]|[\t\r\n ]*[=+\-@])/;
 
 export function csvField(value: unknown): string {
   const text = value == null ? "" : String(value);

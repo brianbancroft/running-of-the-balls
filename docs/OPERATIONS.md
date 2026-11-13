@@ -4,6 +4,23 @@ Handoff for the person who runs this demonstration, or who prepares a later fund
 
 The hosted demonstration is [https://balls.bancroft.io](https://balls.bancroft.io). It is not a licensed gaming site and it does not take payment.
 
+## Status at handoff
+
+Checked in this repository on 13 November 2026. This is the state of the demonstration. It is not a licence, and it is not a decision by the club.
+
+### Done
+
+- One Worker serves the pages and the API. Local setup is `npm ci`, `npm run d1:migrate:local`, then `npm run dev`, and the app is at `http://localhost:8787`. Those commands do not need a Cloudflare account. `npm run check` compiles the client, typechecks, audits dependency licenses, and runs the Workers tests.
+- A buyer can hold a ball and check out, or buy with `POST /api/purchases`. The purchase stores the 19+ and in-British Columbia attestation, a `cs_test_fake_` reference, and a receipt row. The receipt opens at `/purchase?token=`. Nothing is charged.
+- An admin token can record an offline sale, void that sale, and download the three CSV files. A void keeps the purchase, puts the ball back in the pit, and a second void is refused. Receipt tokens are left out of those files. A receipt link inside a stored email is written as `token=redacted`.
+- The catalogue is the 2,500 rows in `balls`. `PAYMENT_MODE` is `stripe_test_fake`, and the Worker does not call Stripe. `EMAIL_DELIVERY` is `dry_run`, so a receipt row is stored and not sent. `GAMING_LICENCE_NUMBER` is empty. The rules page and the footer say "Demo, no licence. No real tickets are sold."
+
+### Still open
+
+- Numbering, number padding, the ticket price, bundles, whether a buyer picks a ball or is assigned one, and this year's prizes are unconfirmed. In `wrangler.jsonc` the demo defaults are `sequential_from_1`, pad `3`, `500` cents, `[]`, `ALLOW_BALL_PICKING` `true`, and past-year prize text `$500`, `$300`, `$100`. Each `*_CONFIRMED` flag is the string `false`. The pages keep the pending label. Filling in a value does not confirm it, and these defaults are not the club's decision.
+- As recorded in this repository, the hosted D1 database has migrations through `0006`. `migrations/0007_reservation_holds.sql`, `migrations/0008_sale_voids.sql`, and `migrations/0009_hold_client.sql` are in the repo. A push does not apply them. The owner applies those three to the hosted database before the next deploy. This handoff did not query that database.
+- Resend stays `dry_run`. Stripe stays a fake test reference. The gaming licence number stays empty until the club has one.
+
 ## What is already decided
 
 - The catalogue is 2,500 balls. That count is the rows in `balls`. It is not a var.

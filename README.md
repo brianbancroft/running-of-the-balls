@@ -66,10 +66,12 @@ Open `http://localhost:8787`.
 3. **See the email record.** The buyer's receipt link includes the stored receipt text. `/selections` lists every email-and-ball row for an address, including that text, and asks for the same admin sign-in as offline sales. The receipt stays in D1 even when Resend is not called.
 4. **Record an offline sale.** Either set `ADMIN_TOKEN` in `.dev.vars` and enter it on `/admin`, or set `ADMIN_EMAILS` plus the Google sign-in secrets below and sign in with a listed account. Enter a free ball number and a name and email. That ball locks the same way as an online buy, including when both are attempted together. A ball that is still inside someone else's five minutes is refused. After those five minutes, the same ball can be recorded. A buyer can still check out with only the email on the purchase form. To undo a mistaken record, enter its purchase id and a reason and void it. The ball is free again. The same page downloads the purchases, ball selections, and email dispatches as CSV.
 
+The same online purchase from the shell has to send the attestation. `attestAge19` and `attestInBc` are JSON booleans. Without both set to `true`, the Worker refuses the purchase:
+
 ```bash
 curl -s -X POST http://127.0.0.1:8787/api/purchases \
   -H 'content-type: application/json' \
-  -d '{"email":"buyer@example.com","buyerName":"Ada","ballId":12}'
+  -d '{"email":"buyer@example.com","buyerName":"Ada","ballId":12,"attestAge19":true,"attestInBc":true}'
 ```
 
 To try offline sales, copy the example env file and set a token only on your machine:
