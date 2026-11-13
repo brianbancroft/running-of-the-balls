@@ -6,7 +6,7 @@ import { buildSelectionReceipt } from "../src/email/receipt";
 import { planEmailDelivery, sendSelectionReceipt } from "../src/email/deliver";
 import worker from "../src/index";
 import { buildDemoPayment } from "../src/payments/stripe-test";
-import { marqueeNumbers } from "../src/client/format";
+import { formatBallNumber, marqueeNumbers } from "../src/client/format";
 import { BUYER_ATTESTATION_TEXT, UNLICENSED_BANNER } from "../src/compliance";
 import { purchaseBall } from "../src/purchase-engine";
 
@@ -59,14 +59,62 @@ describe("Running of the Balls demo", () => {
       emailDelivery: string;
       charged: boolean;
       allowBallPicking: boolean;
+      assignment: string;
+      numbering: string;
+      numberPad: number;
+      bundles: unknown[];
+      decisionsPending: boolean;
+      amountCents: number;
     }>();
     expect(body.demoMode).toBe(true);
     expect(body.paymentMode).toBe("stripe_test_fake");
     expect(body.emailDelivery).toBe("dry_run");
     expect(body.charged).toBe(false);
     expect(body.allowBallPicking).toBe(true);
+    expect(body.assignment).toBe("buyer_picks");
+    expect(body.numbering).toBe("sequential_from_1");
+    expect(body.numberPad).toBe(3);
+    expect(body.bundles).toEqual([]);
+    expect(body.decisionsPending).toBe(true);
+    expect(body.amountCents).toBe(500);
+    expect(formatBallNumber(7, body.numberPad)).toBe("007");
+    expect(formatBallNumber(7, 0)).toBe("7");
+    expect(formatBallNumber(2500, 3)).toBe("2500");
     expect(JSON.stringify(body)).not.toContain("sk_");
     expect(JSON.stringify(body)).not.toContain("test-admin-token");
+
+    // callAs writes through to the shared test bindings, so restore them.
+    try {
+      const priced = await callAs("/api/config", undefined, {
+        BALL_BUNDLES: '[{"quantity":5,"label":"Five balls"},{"label":" A pair ","quantity":2}]',
+      });
+      expect(priced.status).toBe(200);
+      expect(await priced.json()).toMatchObject({
+        bundles: [
+          { quantity: 2, label: "A pair" },
+          { quantity: 5, label: "Five balls" },
+        ],
+      });
+      const invented = await callAs("/api/config", undefined, {
+        BALL_BUNDLES: '[{"quantity":5,"label":"Five","amountCents":100}]',
+      });
+      expect(invented.status).toBe(500);
+      const scheme = await callAs("/api/config", undefined, { BALL_NUMBERING: "lucky-numbers" });
+      expect(scheme.status).toBe(500);
+      const plain = await callAs("/api/config", undefined, {
+        BALL_NUMBERING: "sequential_from_1",
+        BALL_NUMBER_PAD: "0",
+        BALL_BUNDLES: "[]",
+      });
+      expect(plain.status).toBe(200);
+      expect(await plain.json()).toMatchObject({ numberPad: 0, numbering: "sequential_from_1" });
+    } finally {
+      await callAs("/api/config", undefined, {
+        BALL_NUMBERING: "sequential_from_1",
+        BALL_NUMBER_PAD: "3",
+        BALL_BUNDLES: "[]",
+      });
+    }
   });
 
   it("shows the unlicensed banner until a licence number is configured", async () => {
@@ -213,7 +261,7 @@ describe("Running of the Balls demo", () => {
     expect(body.email.mode).toBe("dry_run");
     expect(body.email.preview.text.toLowerCase()).toContain("no payment was taken");
     expect(body.purchase.emailRecord?.sent).toBe(false);
-    expect(body.purchase.emailRecord?.subject).toContain("ball 9");
+    expect(body.purchase.emailRecord?.subject).toContain("ball 009");
     expect(body.purchase.receiptToken).toMatch(/^[0-9a-f]{64}$/);
     expect(body.email.preview.text).toContain(`/purchase?token=${body.purchase.receiptToken}`);
 
@@ -232,8 +280,9 @@ describe("Running of the Balls demo", () => {
         mode: string;
       }>();
     expect(stored?.ball_id).toBe(9);
-    expect(stored?.subject).toContain("ball 9");
+    expect(stored?.subject).toContain("ball 009");
     expect(stored?.text_body.toLowerCase()).toContain("no payment was taken");
+    expect(stored?.text_body).toContain("placeholder, pending a decision");
     expect(stored?.status).toBe("previewed");
     expect(stored?.mode).toBe("dry_run");
 
@@ -538,6 +587,7 @@ describe("Running of the Balls demo", () => {
       selectionId: "20000000-0000-4000-8000-000000000099",
       reference: "cs_test_fake_demo",
       amountCents: 2000,
+      numberPad: 3,
       kind: "online_demo",
       receiptUrl: "http://example.com/purchase?token=abc",
     });

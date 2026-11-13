@@ -489,6 +489,7 @@ function receiptFor(row: JoinedRow, config: AppConfig, origin: string) {
     selectionId: row.selection_id,
     reference,
     amountCents: row.amount_cents,
+    numberPad: config.numberPad,
     kind: row.payment_mode === "offline_demo" ? "offline_demo" : "online_demo",
     receiptUrl: receiptLink(origin, row.receipt_token),
   });
@@ -621,6 +622,7 @@ export async function confirmDemoPurchase(
     selectionId: current.selection_id,
     reference: payment.stripeTestReference,
     amountCents: current.amount_cents,
+    numberPad: config.numberPad,
     kind: "online_demo",
     receiptUrl: receiptLink(origin, current.receipt_token),
   });
@@ -883,6 +885,54 @@ async function writeLockedSale(
   }
 }
 
+export async function undoReservationPurchase(
+  db: D1Database,
+  purchaseId: string,
+  ballId: number,
+  holdId: string,
+): Promise<void> {
+  await db.batch([
+    db.prepare(`DELETE FROM email_dispatches WHERE purchase_id = ?`).bind(purchaseId),
+    db.prepare(`DELETE FROM ball_selections WHERE purchase_id = ?`).bind(purchaseId),
+    db
+      .prepare(
+        `UPDATE ball_holds
+         SET state = 'pending_payment', purchase_id = NULL
+         WHERE id = ? AND ball_id = ? AND state = 'confirmed'`,
+      )
+      .bind(holdId, ballId),
+    db
+      .prepare(
+        `DELETE FROM purchases
+         WHERE id = ?
+           AND status = 'demo_confirmed'
+           AND payment_mode = 'stripe_test_fake'
+           AND voided_at IS NULL`,
+      )
+      .bind(purchaseId),
+  ]);
+  await db
+    .prepare(
+      `UPDATE balls
+       SET status = 'selected'
+       WHERE id = ?
+         AND EXISTS (
+           SELECT 1 FROM ball_holds
+           WHERE ball_id = balls.id AND state = 'pending_payment'
+         )
+         AND NOT EXISTS (
+           SELECT 1
+           FROM ball_selections s
+           JOIN purchases p ON p.id = s.purchase_id
+           WHERE s.ball_id = balls.id
+             AND p.status = 'demo_confirmed'
+             AND p.voided_at IS NULL
+         )`,
+    )
+    .bind(ballId)
+    .run();
+}
+
 export async function sellFromReservation(
   db: D1Database,
   input: {
@@ -928,6 +978,7 @@ export async function sellFromReservation(
     selectionId,
     reference: payment.stripeTestReference,
     amountCents: config.amountCents,
+    numberPad: config.numberPad,
     kind: "online_demo",
     receiptUrl: receiptLink(origin, receiptToken),
   });
@@ -1029,23 +1080,7 @@ export async function sellFromReservation(
     changed(selectionInsert) !== 1 ||
     changed(dispatchInsert) !== 1
   ) {
-    if (changed(ballUpdate) === 1) {
-      await db
-        .prepare(`UPDATE balls SET status = 'selected' WHERE id = ? AND status = 'sold'`)
-        .bind(input.ballId)
-        .run();
-    }
-    await db
-      .prepare(
-        `UPDATE ball_holds
-         SET state = 'pending_payment', purchase_id = NULL
-         WHERE id = ? AND state = 'confirmed'`,
-      )
-      .bind(input.holdId)
-      .run();
-    await db.prepare(`DELETE FROM email_dispatches WHERE purchase_id = ?`).bind(purchaseId).run();
-    await db.prepare(`DELETE FROM ball_selections WHERE purchase_id = ?`).bind(purchaseId).run();
-    await db.prepare(`DELETE FROM purchases WHERE id = ?`).bind(purchaseId).run();
+    await undoReservationPurchase(db, purchaseId, input.ballId, input.holdId);
     logError({ message: "reservation purchase rolled back after a partial write", ballId: input.ballId });
     throw new HttpError(500, "Could not record the purchase.");
   }
@@ -1107,6 +1142,7 @@ export async function purchaseBall(
       selectionId,
       reference: payment.stripeTestReference,
       amountCents: config.amountCents,
+      numberPad: config.numberPad,
       kind: "online_demo",
       receiptUrl: receiptLink(origin, receiptToken),
     });
@@ -1186,6 +1222,7 @@ export async function recordOfflineSale(
     selectionId,
     reference: "offline demo record",
     amountCents: config.amountCents,
+    numberPad: config.numberPad,
     kind: "offline_demo",
     receiptUrl: receiptLink(origin, receiptToken),
   });

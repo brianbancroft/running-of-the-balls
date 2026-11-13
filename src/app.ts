@@ -84,6 +84,11 @@ app.get("/api/config", (c) => {
     appName: config.appName,
     demoMode: config.demoMode,
     allowBallPicking: config.allowBallPicking,
+    assignment: config.assignment,
+    numbering: config.numbering,
+    numberPad: config.numberPad,
+    bundles: config.bundles,
+    decisionsPending: config.decisionsPending,
     paymentMode: config.paymentMode,
     emailDelivery: config.emailDelivery,
     amountCents: config.amountCents,
@@ -133,6 +138,10 @@ app.get("/api/reservations", async (c) => {
 });
 
 app.post("/api/reservations", async (c) => {
+  const config = readConfig(c.env);
+  if (!config.allowBallPicking) {
+    throw new HttpError(400, "Choosing a specific ball is turned off for this demo.");
+  }
   const body = await readJsonObject(c);
   const ballId = parseOptionalBallId(body.ballId);
   if (ballId == null) throw new HttpError(400, "Choose a ball.");

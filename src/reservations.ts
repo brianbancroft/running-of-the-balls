@@ -7,8 +7,9 @@ import {
   reservationHoldLimitMessage,
 } from "./hold-limits";
 import { HttpError } from "./http";
+import { logError, logInfo } from "./log";
 import type { ConfirmedPurchase, SaleAttestation } from "./purchase-engine";
-import { sellFromReservation } from "./purchase-engine";
+import { sellFromReservation, undoReservationPurchase } from "./purchase-engine";
 
 export { expireDueHolds, HOLD_WINDOW_MS };
 
@@ -310,7 +311,11 @@ export async function checkoutReservation(
   await expireDueHolds(db, now);
   if (!sessionId) throw new HttpError(409, "Choose a ball before paying.");
   const session = await loadSession(db, sessionId);
-  if (!session || !isOpen(session, nowIso)) {
+  if (!session) throw new HttpError(409, "Choose a ball before paying.");
+  if (session.status === "completed") {
+    throw new HttpError(409, "This checkout is already paid.");
+  }
+  if (!isOpen(session, nowIso)) {
     throw new HttpError(409, "Your five minutes ran out. Those balls are back in the pit.");
   }
   const holds = await pendingHolds(db, sessionId);
@@ -320,25 +325,51 @@ export async function checkoutReservation(
   }
 
   const purchases: ConfirmedPurchase[] = [];
-  for (const ballId of input.ballIds) {
-    const hold = byBall.get(ballId);
-    if (!hold) throw new HttpError(409, "Those balls are not held for this checkout.");
-    const sold = await sellFromReservation(
-      db,
-      {
-        holdId: hold.id,
-        sessionId,
-        ballId,
-        email: input.email,
-        buyerName: input.buyerName,
-        attestation: input.attestation,
-        now: nowIso,
-      },
-      config,
-      origin,
-    );
-    if (!sold) throw new HttpError(409, "That hold changed before payment.");
-    purchases.push(sold);
+  try {
+    for (const ballId of input.ballIds) {
+      const hold = byBall.get(ballId);
+      if (!hold) throw new HttpError(409, "Those balls are not held for this checkout.");
+      const sold = await sellFromReservation(
+        db,
+        {
+          holdId: hold.id,
+          sessionId,
+          ballId,
+          email: input.email,
+          buyerName: input.buyerName,
+          attestation: input.attestation,
+          now: nowIso,
+        },
+        config,
+        origin,
+      );
+      if (!sold) throw new HttpError(409, "That hold changed before payment.");
+      purchases.push(sold);
+    }
+  } catch (error) {
+    for (const item of purchases.reverse()) {
+      const purchaseId = item.purchase.id;
+      const ballId = item.purchase.ball.id;
+      try {
+        const hold = await db
+          .prepare(`SELECT id FROM ball_holds WHERE purchase_id = ? AND ball_id = ?`)
+          .bind(purchaseId, ballId)
+          .first<{ id: string }>();
+        if (!hold) throw new Error("The hold for this checkout could not be found.");
+        await undoReservationPurchase(db, purchaseId, ballId, hold.id);
+        const fields = { message: "checkout rolled back a recorded ball", purchaseId, ballId };
+        if (item.email.sent) logError({ ...fields, emailSent: true });
+        else logInfo(fields);
+      } catch (undoError) {
+        logError({
+          message: "checkout could not roll back a recorded ball",
+          purchaseId,
+          ballId,
+          error: undoError instanceof Error ? undoError.message : "unknown",
+        });
+      }
+    }
+    throw error;
   }
 
   const paid = new Set(input.ballIds);

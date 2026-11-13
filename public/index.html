@@ -34,7 +34,11 @@
       <div class="meta">
         <span class="chip"><i class="dot"></i>High Street, Ladysmith, BC</span>
         <span class="chip">Race day: date TBA</span>
-        <span class="chip"><span id="unit-price">Price</span> <span class="ph">Placeholder</span></span>
+        <span class="chip"><span id="unit-price">Price</span> <span class="ph">Pending a decision</span></span>
+      </div>
+      <div class="note" id="open-decisions" style="margin-top:16px">
+        <span class="ic">i</span>
+        <p>Pending a decision: ball numbering, the ticket price, bundles, and whether a buyer picks a number or is assigned one. The figures on this page are placeholders.</p>
       </div>
       <div id="pick-controls">
         <div class="ctas">
@@ -49,13 +53,14 @@
             <input id="qty" type="number" min="1" value="1" inputmode="numeric" aria-label="Number of balls">
             <button type="button" id="qty-inc" aria-label="More balls">+</button>
           </div>
-          <div class="sum"><span id="qty-label">Balls</span><strong id="qty-sum"></strong> <span class="ph">Placeholder price</span></div>
+          <div class="sum"><span id="qty-label">Balls</span><strong id="qty-sum"></strong> <span class="ph">Pending a decision</span></div>
         </div>
+        <div id="bundles"></div>
         <div class="ctas">
           <a class="btn red" id="qty-cta" href="/checkout">Get a ball</a>
           <a class="btn ghost" href="#how">How it works</a>
         </div>
-        <div class="note" style="margin-top:16px"><span class="ic">i</span><p>Numbers are handed out for you this time. An open ball is chosen for you, and you see the number right after checkout. <span class="ph">Wording proposed</span></p></div>
+        <div class="note" style="margin-top:16px"><span class="ic">i</span><p>Numbers are handed out for you in this demo. An open ball is chosen for you, and you see the number right after checkout. Whether buyers may pick a number is not decided.</p></div>
       </div>
       <div class="stock" id="stock-line"></div>
       <div class="bar"><i id="stock-bar" style="width:0"></i></div>
@@ -81,7 +86,7 @@
     <div class="eyebrow">How it works</div>
     <h2 style="margin-top:12px">Buy a ball. Watch it roll.</h2>
     <div class="steps">
-      <div class="step"><h3>Get your ball</h3><p>Every ball has its own number. Pick a favourite number, or let us hand you the next one.</p></div>
+      <div class="step"><h3>Get your ball</h3><p id="how-assign">Every ball has its own number. Whether you pick that number or one is handed to you is not decided.</p></div>
       <div class="step"><h3>Race day on High Street</h3><p>All the balls are let go at the top of High Street and tumble down the hill together.</p></div>
       <div class="step"><h3>First to the bottom wins</h3><p>The first balls across the line win cash prizes. Every ball helps the Ladysmith Kinsmen help the town.</p></div>
     </div>
@@ -127,7 +132,7 @@
     <div class="fine">
       <span>Ladysmith Kinsmen / Kin Canada</span>
       <span data-licence-status>Demo — not licensed, no real tickets sold.</span>
-      <span>Demo build · payments in Stripe test mode · prices and prizes are placeholders</span>
+      <span>Demo build · payments in Stripe test mode · numbering, price, and bundles are pending a decision</span>
     </div>
   </footer>
   <script type="module" src="/app.js"></script>

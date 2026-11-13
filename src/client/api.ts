@@ -6,8 +6,18 @@ export type Ball = {
   status: BallStatus;
 };
 
+export type BallBundle = {
+  quantity: number;
+  label: string;
+};
+
 export type Config = {
   allowBallPicking: boolean;
+  assignment: "buyer_picks" | "assigned";
+  numbering: string;
+  numberPad: number;
+  bundles: BallBundle[];
+  decisionsPending: boolean;
   amountCents: number;
   currency: string;
   paymentsBlocked: boolean;

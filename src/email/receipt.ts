@@ -1,3 +1,5 @@
+import { formatBallNumber } from "../client/format";
+
 export type SelectionReceipt = {
   to: string;
   from: string;
@@ -41,14 +43,16 @@ export function buildSelectionReceipt(input: {
   selectionId: string;
   reference: string;
   amountCents: number;
+  numberPad: number;
   kind: "online_demo" | "offline_demo";
   receiptUrl: string;
 }): SelectionReceipt {
   const ballNumber = input.ballNumber;
+  const publicNumber = formatBallNumber(ballNumber, input.numberPad);
   const subject =
     input.kind === "offline_demo"
-      ? `Demo only: ball ${ballNumber} recorded offline (no charge)`
-      : `Demo only: ball ${ballNumber} recorded (no charge)`;
+      ? `Demo only: ball ${publicNumber} recorded offline (no charge)`
+      : `Demo only: ball ${publicNumber} recorded (no charge)`;
   const greeting = input.buyerName ? `Hello ${input.buyerName},` : "Hello,";
   const amount = money(input.amountCents);
   const recorded =
@@ -64,7 +68,7 @@ export function buildSelectionReceipt(input: {
     recorded,
     "No payment was taken by this app. No draw entry was created. This message is not a ticket.",
     "",
-    `Demonstration amount shown on the record: ${amount}`,
+    `Demonstration amount shown on the record: ${amount} (placeholder, pending a decision).`,
     `Local reference: ${input.reference}`,
     `Selection: ${input.selectionId}`,
     `Your receipt: ${input.receiptUrl}`,
@@ -97,7 +101,7 @@ export function buildSelectionReceipt(input: {
             <td style="padding:0 24px 16px;font-size:16px;line-height:1.5;">${escapeHtml(recorded)} No payment was taken by this app. No draw entry was created. This message is not a ticket.</td>
           </tr>
           <tr>
-            <td style="padding:0 24px 16px;font-size:16px;line-height:1.5;">Demonstration amount on the record: ${escapeHtml(amount)}<br>Local reference: ${escapeHtml(input.reference)}</td>
+            <td style="padding:0 24px 16px;font-size:16px;line-height:1.5;">Demonstration amount on the record: ${escapeHtml(amount)} (placeholder, pending a decision).<br>Local reference: ${escapeHtml(input.reference)}</td>
           </tr>
           <tr>
             <td style="padding:0 24px 16px;font-size:16px;line-height:1.5;"><a href="${escapeHtml(input.receiptUrl)}">Open your receipt</a></td>

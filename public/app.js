@@ -1,5 +1,5 @@
 import { buyBall, checkoutReservation, downloadCsv, getBalls, getConfig, getReservation, getSession, holdReservation, listSales, offlineSale, purchaseForToken, releaseReservation, selectionsFor, voidSale, } from "./api.js";
-import { ballColour, ballNumber, customerHoldSummary, marqueeNumbers, money } from "./format.js";
+import { ballColour, ballNumber, customerHoldSummary, marqueeNumbers, money, useBallNumberPad } from "./format.js";
 import { readBuyer, readDeadline, readPaused, readPicks, readQty, readReceipt, writeBuyer, writeDeadline, writePaused, writePicks, writeQty, writeReceipt, fieldSeed, } from "./store.js";
 function inventoryOf(balls) {
     return new Map(balls.map((ball) => [ball.ballNumber, ball]));
@@ -247,9 +247,76 @@ function ph(text) {
     node.textContent = text;
     return node;
 }
+function decisionCopy(config) {
+    const sample = ballNumber(7);
+    const price = money(config.amountCents, config.currency);
+    const bundles = config.bundles.length === 0
+        ? "No bundles are offered."
+        : `Bundles use that same placeholder price: ${config.bundles
+            .map((bundle) => `${bundle.label} (${bundle.quantity} balls, ${money(bundle.quantity * config.amountCents, config.currency)})`)
+            .join("; ")}.`;
+    const assignment = config.assignment === "buyer_picks"
+        ? "This demo lets a buyer pick a specific ball for the whole sale."
+        : "This demo assigns an open ball at checkout and does not let a buyer pick a number.";
+    return `Pending a decision. Numbers run from 1 and ball 7 is shown as ${sample}. The price is ${price} a ball, not a ticket price. ${bundles} ${assignment}`;
+}
+function paintOpenDecisions(config) {
+    if (!config.decisionsPending)
+        return;
+    const copy = decisionCopy(config);
+    for (const node of document.querySelectorAll("#open-decisions p, [data-open-decisions]")) {
+        node.textContent = copy;
+    }
+    const how = document.querySelector("#how-assign");
+    if (how) {
+        how.textContent =
+            config.assignment === "buyer_picks"
+                ? "This demo lets you pick a number. Whether buyers keep that choice is not decided."
+                : "This demo hands you an open ball. Whether buyers may pick a number is not decided.";
+    }
+}
+function paintBundles(config, apply) {
+    const host = document.querySelector("#bundles");
+    if (!(host instanceof HTMLElement))
+        return;
+    host.replaceChildren();
+    if (config.assignment === "buyer_picks") {
+        const note = document.createElement("p");
+        note.className = "fine";
+        note.textContent =
+            config.bundles.length === 0
+                ? "No bundles. A multi-ball price has not been decided."
+                : "A bundle is that many balls at the placeholder price. Pick that many numbers.";
+        host.append(note);
+        return;
+    }
+    if (config.bundles.length === 0) {
+        const note = document.createElement("p");
+        note.className = "fine";
+        note.append("No bundles. ", ph("Pending a decision"));
+        host.append(note);
+        return;
+    }
+    const note = document.createElement("p");
+    note.className = "fine";
+    note.append("Bundles use the same placeholder price. ", ph("Pending a decision"));
+    const row = document.createElement("div");
+    row.className = "ctas";
+    for (const bundle of config.bundles) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "btn ghost sm";
+        button.textContent = `${bundle.label} · ${money(bundle.quantity * config.amountCents, config.currency)}`;
+        button.addEventListener("click", () => apply(bundle.quantity));
+        row.append(button);
+    }
+    host.append(note, row);
+}
 async function boot() {
     const page = document.body.dataset.page ?? "home";
     const [config, list] = await Promise.all([getConfig(), getBalls()]);
+    useBallNumberPad(config.numberPad);
+    paintOpenDecisions(config);
     const balls = inventoryOf(list);
     if (config.allowBallPicking && (page === "home" || page === "pick" || page === "checkout")) {
         try {
@@ -424,6 +491,11 @@ function initHome(config, balls, total, free, soldOut) {
             qtyBtn.textContent = qty === 1 ? "Get a ball" : `Get ${qty} balls`;
         writeQty(qty);
     };
+    paintBundles(config, (quantity) => {
+        qty = Math.min(maxQty, Math.max(1, quantity));
+        drawQty();
+        say(`${qty} balls at the placeholder price.`);
+    });
     drawQty();
     qtyOut?.addEventListener("change", () => {
         if (!(qtyOut instanceof HTMLInputElement))
@@ -506,7 +578,7 @@ function initHome(config, balls, total, free, soldOut) {
         const strong = document.createElement("strong");
         strong.textContent = money(picks.length * config.amountCents, config.currency);
         const meta = document.createElement("span");
-        meta.append(`${picks.length} × `, ph("Placeholder price"));
+        meta.append(`${picks.length} × `, ph("Pending a decision"));
         const clock = document.createElement("span");
         clock.className = "hold-clock";
         clock.dataset.holdClock = "true";
@@ -725,7 +797,7 @@ function initPick(config, balls, soldOut) {
         }
         const tot = document.createElement("div");
         tot.className = "tot";
-        tot.append(ph("Placeholder price"));
+        tot.append(ph("Pending a decision"));
         const strong = document.createElement("strong");
         strong.textContent = money(picks.length * config.amountCents, config.currency);
         tot.append(strong);
@@ -874,6 +946,11 @@ function move(event, buttons) {
     target.focus();
 }
 function initCheckout(config, balls) {
+    const back = document.querySelector(".co a.btn.link");
+    if (back instanceof HTMLAnchorElement && config.assignment === "assigned") {
+        back.href = "/";
+        back.textContent = "Back";
+    }
     const order = document.querySelector("#order");
     const alert = document.querySelector("#taken");
     const pay = document.querySelector("#pay");
@@ -1053,6 +1130,7 @@ async function submitCheckout(config, name, email, pay) {
     pay.disabled = true;
     writeBuyer(name, email);
     const recorded = [];
+    let amountCents = 0;
     try {
         if (config.allowBallPicking) {
             const reservation = await getReservation();
@@ -1077,6 +1155,7 @@ async function submitCheckout(config, name, email, pay) {
                     reference: item.purchase.stripeTestReference,
                     receiptToken: item.purchase.receiptToken,
                 });
+                amountCents += item.purchase.amountCents;
             }
             writePicks([]);
             writeDeadline(null);
@@ -1098,13 +1177,14 @@ async function submitCheckout(config, name, email, pay) {
                     reference: result.purchase.stripeTestReference,
                     receiptToken: result.purchase.receiptToken,
                 });
+                amountCents += result.purchase.amountCents;
             }
         }
         writeReceipt({
             email,
             name,
             balls: recorded,
-            amountCents: recorded.length * config.amountCents,
+            amountCents,
             currency: config.currency,
             charged: false,
         });
@@ -1117,7 +1197,7 @@ async function submitCheckout(config, name, email, pay) {
                 email,
                 name,
                 balls: recorded,
-                amountCents: recorded.length * config.amountCents,
+                amountCents,
                 currency: config.currency,
                 charged: false,
                 incomplete: true,
@@ -1188,7 +1268,7 @@ function initConfirmation(config) {
         span.textContent = label;
         const strong = document.createElement("strong");
         strong.textContent = value;
-        strong.append(" ", ph("Placeholder"));
+        strong.append(" ", ph("Pending a decision"));
         row.append(span, strong);
         table.append(row);
     }

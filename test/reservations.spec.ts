@@ -296,4 +296,104 @@ describe("reservation holds", () => {
       .first<{ n: number }>();
     expect(purchase?.n).toBe(0);
   });
+
+  it("refuses a chosen ball when buyers are assigned one", async () => {
+    const bindings = Object.create(env) as CloudflareBindings;
+    Object.assign(bindings, { ALLOW_BALL_PICKING: "false" });
+    try {
+      const ctx = createExecutionContext();
+      const response = await worker.fetch(
+        new Request("http://example.com/api/reservations", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ballId: 2452 }),
+        }),
+        bindings,
+        ctx,
+      );
+      await waitOnExecutionContext(ctx);
+      expect(response.status).toBe(400);
+      const body = await response.json<{ error: string }>();
+      expect(body.error).toMatch(/turned off/);
+      const ball = await env.DB.prepare(`SELECT status FROM balls WHERE id = 2452`).first<{ status: string }>();
+      expect(ball?.status).toBe("available");
+    } finally {
+      Object.assign(Object.create(env) as CloudflareBindings, { ALLOW_BALL_PICKING: "true" });
+    }
+  });
+
+  it("keeps no ball when a later hold in the same checkout cannot be sold", async () => {
+    const first = await reserve(2450);
+    const second = await reserve(2451, first.cookie);
+    expect(second.status).toBe(201);
+    await env.DB.prepare(`UPDATE balls SET status = 'available' WHERE id = 2451`).run();
+
+    const paid = await call("/api/reservations/checkout", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: first.cookie },
+      body: JSON.stringify({
+        email: "partial.checkout@example.com",
+        buyerName: "Partial",
+        ballIds: [2450, 2451],
+        attestAge19: true,
+        attestInBc: true,
+      }),
+    });
+    expect(paid.status).toBe(500);
+
+    const balls = await env.DB.prepare(`SELECT id, status FROM balls WHERE id IN (2450, 2451) ORDER BY id`).all<{
+      id: number;
+      status: string;
+    }>();
+    expect(balls.results).toEqual([
+      { id: 2450, status: "selected" },
+      { id: 2451, status: "selected" },
+    ]);
+    const holds = await env.DB.prepare(
+      `SELECT ball_id, state, purchase_id FROM ball_holds WHERE ball_id IN (2450, 2451) AND state = 'pending_payment' ORDER BY ball_id`,
+    ).all<{ ball_id: number; state: string; purchase_id: string | null }>();
+    expect(holds.results).toEqual([
+      { ball_id: 2450, state: "pending_payment", purchase_id: null },
+      { ball_id: 2451, state: "pending_payment", purchase_id: null },
+    ]);
+    const purchases = await env.DB.prepare(`SELECT COUNT(*) AS n FROM purchases WHERE buyer_email = ?`)
+      .bind("partial.checkout@example.com")
+      .first<{ n: number }>();
+    expect(purchases?.n).toBe(0);
+    const session = await env.DB.prepare(`SELECT status FROM reservation_sessions WHERE id = ?`)
+      .bind(first.body.session?.id)
+      .first<{ status: string }>();
+    expect(session?.status).toBe("open");
+  });
+
+  it("does not tell a paid checkout that the balls went back in the pit", async () => {
+    const held = await reserve(2460);
+    const paid = await call("/api/reservations/checkout", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: held.cookie },
+      body: JSON.stringify({
+        email: "already.paid@example.com",
+        buyerName: "Paid",
+        ballIds: [2460],
+        attestAge19: true,
+        attestInBc: true,
+      }),
+    });
+    expect(paid.status).toBe(201);
+    const again = await call("/api/reservations/checkout", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: held.cookie },
+      body: JSON.stringify({
+        email: "already.paid@example.com",
+        buyerName: "Paid",
+        ballIds: [2460],
+        attestAge19: true,
+        attestInBc: true,
+      }),
+    });
+    expect(again.status).toBe(409);
+    const body = await again.json<{ error: string }>();
+    expect(body.error).toBe("This checkout is already paid.");
+    expect(await ballStatus(2460)).toBe("sold");
+  });
 });

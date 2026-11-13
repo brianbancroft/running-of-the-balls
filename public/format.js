@@ -24,8 +24,20 @@ export function ballColour(n) {
     const c = PALETTE[(n * 7 + Math.floor(n / 9)) % PALETTE.length] ?? PALETTE[0] ?? "#FFC234";
     return { c, hi: mix(c, "#FFFFFF", 0.45), lo: mix(c, "#000000", 0.28) };
 }
+// Public label for sequential_from_1. The pad is a placeholder, not a decided format.
+// 0 prints the integer. A longer number is not cut: 2500 stays 2500 when the pad is 3.
+let numberPad = 3;
+export function useBallNumberPad(pad) {
+    numberPad = pad;
+}
+export function formatBallNumber(n, pad) {
+    const text = String(n);
+    if (pad <= 0 || text.length >= pad)
+        return text;
+    return text.padStart(pad, "0");
+}
 export function ballNumber(n) {
-    return n >= 1000 ? String(n) : String(n).padStart(3, "0");
+    return formatBallNumber(n, numberPad);
 }
 function mixSeed(seed) {
     let state = seed >>> 0;
