@@ -76,7 +76,7 @@ export async function unseal(
   if (!/^[A-Za-z0-9_-]+$/.test(body) || !/^[A-Za-z0-9_-]+$/.test(signature)) return null;
   const expected = await hmac(secret, body);
   const actual = base64UrlToBytes(signature);
-  if (!actual || !safeEqual(expected, actual)) return null;
+  if (!actual || !(await safeEqual(expected, actual))) return null;
   const decoded = base64UrlToBytes(body);
   if (!decoded) return null;
   try {
@@ -88,9 +88,13 @@ export async function unseal(
   }
 }
 
-function safeEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.byteLength === 0 || a.byteLength !== b.byteLength) return false;
-  return crypto.subtle.timingSafeEqual(a, b);
+async function safeEqual(a: Uint8Array, b: Uint8Array): Promise<boolean> {
+  const [left, right] = await Promise.all([
+    crypto.subtle.digest("SHA-256", a),
+    crypto.subtle.digest("SHA-256", b),
+  ]);
+  const equal = crypto.subtle.timingSafeEqual(new Uint8Array(left), new Uint8Array(right));
+  return a.byteLength > 0 && b.byteLength > 0 && equal;
 }
 
 async function hmac(secret: string, value: string): Promise<Uint8Array> {

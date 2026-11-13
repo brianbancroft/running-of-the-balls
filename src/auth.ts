@@ -8,15 +8,14 @@ function readBearer(header: string | undefined): string | undefined {
   return match?.[1];
 }
 
-export function tokensMatch(expected: string, provided: string): boolean {
+export async function tokensMatch(expected: string, provided: string): Promise<boolean> {
   const encoder = new TextEncoder();
-  const a = encoder.encode(expected);
-  const b = encoder.encode(provided);
-  if (a.byteLength === 0 || a.byteLength !== b.byteLength) {
-    crypto.subtle.timingSafeEqual(a, a);
-    return false;
-  }
-  return crypto.subtle.timingSafeEqual(a, b);
+  const [expectedDigest, providedDigest] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(`rob-admin:${expected}`)),
+    crypto.subtle.digest("SHA-256", encoder.encode(`rob-admin:${provided}`)),
+  ]);
+  const equal = crypto.subtle.timingSafeEqual(new Uint8Array(expectedDigest), new Uint8Array(providedDigest));
+  return expected.length > 0 && provided.length > 0 && equal;
 }
 
 export function isAdminEmail(config: AppConfig, email: string): boolean {
@@ -34,7 +33,7 @@ export async function assertAdmin(
 ): Promise<AdminActor> {
   const provided = readBearer(authorization);
   if (provided) {
-    if (config.adminToken && tokensMatch(config.adminToken, provided)) return { by: "admin-token" };
+    if (config.adminToken && (await tokensMatch(config.adminToken, provided))) return { by: "admin-token" };
     throw new HttpError(401, "Admin token was not accepted.");
   }
   const session = await readSession(config, cookieHeader);

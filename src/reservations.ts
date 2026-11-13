@@ -1,13 +1,18 @@
 import type { AppConfig } from "./config";
 import { expireDueHolds } from "./hold-expiry";
+import {
+  HOLD_WINDOW_MS,
+  MAX_PENDING_HOLDS_PER_RESERVATION,
+  assertClientHoldRoom,
+  reservationHoldLimitMessage,
+} from "./hold-limits";
 import { HttpError } from "./http";
 import type { ConfirmedPurchase, SaleAttestation } from "./purchase-engine";
 import { sellFromReservation } from "./purchase-engine";
 
-export { expireDueHolds };
+export { expireDueHolds, HOLD_WINDOW_MS };
 
 export const RESERVATION_COOKIE = "rob_reservation";
-export const HOLD_WINDOW_MS = 5 * 60 * 1000;
 
 export type HoldState = "pending_payment" | "confirmed" | "released" | "expired";
 export type SessionStatus = "open" | "completed" | "expired";
@@ -178,6 +183,7 @@ export async function holdForSession(
   sessionId: string | null,
   ballId: number,
   now = new Date(),
+  clientKey: string | null = null,
 ): Promise<ReservationView & { hold: ReservationHoldView }> {
   const nowIso = now.toISOString();
   await expireDueHolds(db, now);
@@ -191,12 +197,23 @@ export async function holdForSession(
   if (session && !isOpen(session, nowIso)) session = null;
 
   if (session) {
-    const existing = (await pendingHolds(db, session.id)).find((hold) => hold.ball_id === ballId);
+    const pending = await pendingHolds(db, session.id);
+    const existing = pending.find((hold) => hold.ball_id === ballId);
     if (existing) {
       const view = await viewFor(db, session.id, nowIso);
       return { ...view, hold: toHold(existing) };
     }
+    if (clientKey) {
+      await db
+        .prepare(`UPDATE reservation_sessions SET client_key = ? WHERE id = ? AND client_key IS NULL`)
+        .bind(clientKey, session.id)
+        .run();
+    }
+    if (pending.length >= MAX_PENDING_HOLDS_PER_RESERVATION) {
+      throw new HttpError(429, reservationHoldLimitMessage());
+    }
   }
+  if (clientKey) await assertClientHoldRoom(db, clientKey);
 
   const nextSessionId = session?.id ?? crypto.randomUUID();
   const createdAt = session?.created_at ?? nowIso;
@@ -206,10 +223,10 @@ export async function holdForSession(
   if (creating) {
     await db
       .prepare(
-        `INSERT INTO reservation_sessions (id, created_at, expires_at, status)
-         VALUES (?, ?, ?, 'open')`,
+        `INSERT INTO reservation_sessions (id, created_at, expires_at, status, client_key)
+         VALUES (?, ?, ?, 'open', ?)`,
       )
-      .bind(nextSessionId, createdAt, expiresAt)
+      .bind(nextSessionId, createdAt, expiresAt, clientKey)
       .run();
   }
 
@@ -351,7 +368,11 @@ export async function checkoutReservation(
     ]);
   }
   await db
-    .prepare(`UPDATE reservation_sessions SET status = 'completed' WHERE id = ? AND status = 'open'`)
+    .prepare(
+      `UPDATE reservation_sessions
+       SET status = 'completed', client_key = NULL
+       WHERE id = ? AND status = 'open'`,
+    )
     .bind(sessionId)
     .run();
   return { purchases, released };

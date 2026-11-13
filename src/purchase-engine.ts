@@ -1,6 +1,7 @@
 import type { AppConfig } from "./config";
 import { assertPaymentsAllowed } from "./config";
 import { expireDueHolds } from "./hold-expiry";
+import { assertClientHoldRoom } from "./hold-limits";
 import type { EmailDeliveryResult } from "./email/deliver";
 import { planEmailDelivery, previewResult, sendSelectionReceipt } from "./email/deliver";
 import { buildSelectionReceipt, receiptLink } from "./email/receipt";
@@ -405,6 +406,7 @@ async function tryHold(
   ballId: number,
   input: { email: string; buyerName: string | null },
   config: AppConfig,
+  clientKey: string | null,
 ): Promise<PurchaseRecord | null> {
   const purchaseId = crypto.randomUUID();
   const selectionId = crypto.randomUUID();
@@ -419,12 +421,12 @@ async function tryHold(
         `INSERT INTO purchases (
            id, buyer_email, buyer_name, status, payment_mode,
            stripe_test_reference, offline_note, amount_cents, currency, demo_only,
-           receipt_token, created_at, updated_at
+           receipt_token, client_key, created_at, updated_at
          )
-         SELECT ?, ?, ?, 'demo_pending', 'stripe_test_fake', NULL, NULL, ?, 'CAD', 1, ?, ?, ?
+         SELECT ?, ?, ?, 'demo_pending', 'stripe_test_fake', NULL, NULL, ?, 'CAD', 1, ?, ?, ?, ?
          WHERE changes() = 1`,
       )
-      .bind(purchaseId, input.email, input.buyerName, config.amountCents, receiptToken, now, now),
+      .bind(purchaseId, input.email, input.buyerName, config.amountCents, receiptToken, clientKey, now, now),
     db
       .prepare(
         `INSERT INTO ball_selections (id, ball_id, email, purchase_id, created_at)
@@ -457,12 +459,14 @@ export async function holdBall(
   db: D1Database,
   input: { email: string; buyerName: string | null; ballId: number | undefined },
   config: AppConfig,
+  clientKey: string | null = null,
 ): Promise<PurchaseRecord> {
   assertPaymentsAllowed(config);
+  if (clientKey) await assertClientHoldRoom(db, clientKey);
   const attempts = config.allowBallPicking ? 1 : 3;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const ballId = await chooseBall(db, input.ballId, config);
-    const held = await tryHold(db, ballId, input, config);
+    const held = await tryHold(db, ballId, input, config, clientKey);
     if (held) return held;
     if (config.allowBallPicking) {
       throw new HttpError(409, "That ball is already held or recorded.");

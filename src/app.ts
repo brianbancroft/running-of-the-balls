@@ -2,10 +2,12 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { assertAdmin } from "./auth";
+import { assertCookieSameOrigin } from "./csrf";
 import { ADMIN_ATTESTATION_TEXT, BUYER_ATTESTATION_TEXT } from "./compliance";
 import { DISCLAIMER, googleSignInReady, readConfig } from "./config";
 import { dispatchesCsv, purchasesCsv, selectionsCsv } from "./exports";
 import { beginGoogleSignIn, clearSession, finishGoogleSignIn } from "./google-auth";
+import { clientHoldKey } from "./hold-limits";
 import { HttpError, isMissingSchema, isRecord } from "./http";
 import { logError, logInfo } from "./log";
 import {
@@ -64,8 +66,7 @@ app.use("/api/*", async (c, next) => {
   if (c.req.path !== "/api/health") await expireDueHolds(c.env.DB);
   await next();
   c.header("Cache-Control", "no-store");
-  c.header("X-Content-Type-Options", "nosniff");
-  c.header("Referrer-Policy", "no-referrer");
+  applyDocumentHeaders(c);
 });
 
 app.get("/api/health", (c) => {
@@ -116,6 +117,7 @@ app.get("/api/auth/google", (c) => beginGoogleSignIn(c));
 app.get("/api/auth/google/callback", (c) => finishGoogleSignIn(c));
 
 app.post("/api/auth/logout", (c) => {
+  assertCookieSameOrigin(c);
   clearSession(c);
   return c.json({ signedIn: false });
 });
@@ -134,7 +136,7 @@ app.post("/api/reservations", async (c) => {
   const body = await readJsonObject(c);
   const ballId = parseOptionalBallId(body.ballId);
   if (ballId == null) throw new HttpError(400, "Choose a ball.");
-  const held = await holdForSession(c.env.DB, reservationId(c), ballId);
+  const held = await holdForSession(c.env.DB, reservationId(c), ballId, new Date(), await requestClientKey(c));
   if (held.session) writeReservationCookie(c, held.session.id);
   logInfo({ message: "ball reserved", ballId, charged: false });
   return c.json(held, 201);
@@ -186,6 +188,7 @@ app.post("/api/selections", async (c) => {
       ballId: parseOptionalBallId(body.ballId),
     },
     config,
+    await requestClientKey(c),
   );
   logInfo({
     message: "ball held",
@@ -269,6 +272,7 @@ app.get("/api/selections", async (c) => {
 
 app.use("/api/admin/*", async (c, next) => {
   await assertAdmin(readConfig(c.env), c.req.header("authorization"), c.req.header("cookie"));
+  assertCookieSameOrigin(c);
   await next();
 });
 
@@ -341,8 +345,7 @@ app.all("*", async (c) => {
   }
   const asset = await c.env.ASSETS.fetch(c.req.raw);
   const headers = new Headers(asset.headers);
-  headers.set("Referrer-Policy", "no-referrer");
-  headers.set("X-Content-Type-Options", "nosniff");
+  applyDocumentHeaders({ header: (name, value) => headers.set(name, value) });
   return new Response(asset.body, { status: asset.status, statusText: asset.statusText, headers });
 });
 
@@ -365,6 +368,13 @@ app.onError((error, c) => {
   return c.json({ error: "Something went wrong." }, 500);
 });
 
+function applyDocumentHeaders(c: { header: (name: string, value: string) => void }): void {
+  c.header("Referrer-Policy", "no-referrer");
+  c.header("X-Content-Type-Options", "nosniff");
+  c.header("X-Frame-Options", "DENY");
+  c.header("Content-Security-Policy", "frame-ancestors 'none'");
+}
+
 function csvDownload(
   c: { header: (name: string, value: string) => void; body: (data: string) => Response },
   filename: string,
@@ -377,6 +387,10 @@ function csvDownload(
 
 function originOf(c: { req: { url: string } }): string {
   return new URL(c.req.url).origin;
+}
+
+function requestClientKey(c: Context<{ Bindings: CloudflareBindings }>): Promise<string | null> {
+  return clientHoldKey(c.req.header("cf-connecting-ip"));
 }
 
 function reservationId(c: Context<{ Bindings: CloudflareBindings }>): string | null {
@@ -403,21 +417,57 @@ async function selectionsForAdmin(c: {
   return c.json({ email, selections });
 }
 
+const JSON_BODY_LIMIT = 20_000;
+
+function isJsonContentType(value: string | undefined): boolean {
+  const media = value?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+  return media === "application/json";
+}
+
 async function readJsonObject(c: {
-  req: { header: (name: string) => string | undefined; json: () => Promise<unknown> };
+  req: { header: (name: string) => string | undefined; raw: Request };
 }): Promise<Record<string, unknown>> {
+  if (!isJsonContentType(c.req.header("content-type"))) {
+    throw new HttpError(415, "Expected a JSON body.");
+  }
   const declared = Number(c.req.header("content-length") ?? "0");
-  if (Number.isFinite(declared) && declared > 20_000) {
+  if (Number.isFinite(declared) && declared > JSON_BODY_LIMIT) {
     throw new HttpError(413, "Body is too large.");
   }
+  const text = await readLimitedBody(c.req.raw);
   let body: unknown;
   try {
-    body = await c.req.json();
+    body = JSON.parse(text);
   } catch {
     throw new HttpError(400, "Expected a JSON body.");
   }
   if (!isRecord(body)) throw new HttpError(400, "Expected a JSON object.");
   return body;
+}
+
+async function readLimitedBody(request: Request): Promise<string> {
+  const reader = request.body?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > JSON_BODY_LIMIT) {
+      await reader.cancel();
+      throw new HttpError(413, "Body is too large.");
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 export default app;
