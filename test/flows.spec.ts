@@ -749,6 +749,11 @@ describe("Running of the Balls demo", () => {
         path: "/api/admin/offline-sales",
         body: { email: "blocked.admin@example.com", buyerName: "Blocked", ballId: 2100 },
       },
+      {
+        method: "POST",
+        path: "/api/admin/purchases/10000000-0000-4000-8000-000000000003/void",
+        body: { reason: "Wrong ball recorded in the demo." },
+      },
     ];
     for (const route of routes) {
       for (const authorization of [undefined, "Bearer wrong-token", "Bearer"]) {

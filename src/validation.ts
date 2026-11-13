@@ -86,6 +86,20 @@ export function parseAttestation(body: Record<string, unknown>): BuyerAttestatio
   return { age19: true, inBc: true };
 }
 
+export function parseVoidReason(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new HttpError(400, "A reason is required to void a sale.");
+  }
+  const reason = value.replace(/[\r\n\t]+/g, " ").trim();
+  if (reason.length === 0) {
+    throw new HttpError(400, "A reason is required to void a sale.");
+  }
+  if (reason.length > 500) {
+    throw new HttpError(400, "Reason must be 500 characters or fewer.");
+  }
+  return reason;
+}
+
 export function parsePurchaseId(value: string): string {
   if (!UUID_PATTERN.test(value)) {
     throw new HttpError(400, "That purchase id is not valid.");

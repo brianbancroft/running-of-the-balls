@@ -23,18 +23,22 @@ export function isAdminEmail(config: AppConfig, email: string): boolean {
   return config.adminEmails.includes(email.trim().toLowerCase());
 }
 
+export type AdminActor = {
+  by: string;
+};
+
 export async function assertAdmin(
   config: AppConfig,
   authorization: string | undefined,
   cookieHeader: string | undefined,
-): Promise<void> {
+): Promise<AdminActor> {
   const provided = readBearer(authorization);
   if (provided) {
-    if (config.adminToken && tokensMatch(config.adminToken, provided)) return;
+    if (config.adminToken && tokensMatch(config.adminToken, provided)) return { by: "admin-token" };
     throw new HttpError(401, "Admin token was not accepted.");
   }
   const session = await readSession(config, cookieHeader);
-  if (session && isAdminEmail(config, session.email)) return;
+  if (session && isAdminEmail(config, session.email)) return { by: session.email };
   if (!config.adminToken && config.adminEmails.length === 0) {
     throw new HttpError(
       503,

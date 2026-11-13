@@ -24,8 +24,10 @@ import {
   listRecentSales,
   listSelectionsForEmail,
   purchaseBall,
+  purchaseForBuyer,
   purchaseForReceiptToken,
   recordOfflineSale,
+  voidConfirmedSale,
 } from "./purchase-engine";
 import {
   parseAttestation,
@@ -37,6 +39,7 @@ import {
   parsePurchaseId,
   parseReceiptToken,
   parseSessionCookie,
+  parseVoidReason,
 } from "./validation";
 
 const app = new Hono<{ Bindings: CloudflareBindings }>();
@@ -255,7 +258,7 @@ app.get("/api/purchases", async (c) => {
   const token = parseReceiptToken(c.req.query("token"));
   const purchase = await purchaseForReceiptToken(c.env.DB, token);
   if (!purchase) throw new HttpError(404, "That receipt link was not found.");
-  return c.json({ purchase });
+  return c.json({ purchase: purchaseForBuyer(purchase) });
 });
 
 app.get("/api/selections", async (c) => {
@@ -300,6 +303,21 @@ app.post("/api/admin/offline-sales", async (c) => {
 app.get("/api/admin/sales", async (c) => {
   const purchases = await listRecentSales(c.env.DB);
   return c.json({ purchases });
+});
+
+app.post("/api/admin/purchases/:id/void", async (c) => {
+  const purchaseId = parsePurchaseId(c.req.param("id"));
+  const body = await readJsonObject(c);
+  const reason = parseVoidReason(body.reason);
+  const admin = await assertAdmin(readConfig(c.env), c.req.header("authorization"), c.req.header("cookie"));
+  const purchase = await voidConfirmedSale(c.env.DB, purchaseId, reason, admin.by);
+  logInfo({
+    message: "demo sale voided",
+    purchaseId,
+    ballId: purchase.ball.id,
+    charged: false,
+  });
+  return c.json({ purchase });
 });
 
 app.get("/api/admin/selections", async (c) => selectionsForAdmin(c));

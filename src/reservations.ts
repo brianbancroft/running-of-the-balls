@@ -139,6 +139,7 @@ async function ownedBalls(db: D1Database, sessionId: string): Promise<OwnedBallV
        WHERE h.session_id = ?
          AND h.state = 'confirmed'
          AND p.status = 'demo_confirmed'
+         AND p.voided_at IS NULL
        ORDER BY b.ball_number ASC`,
     )
     .bind(sessionId)

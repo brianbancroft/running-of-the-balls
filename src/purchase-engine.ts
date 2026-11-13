@@ -9,7 +9,7 @@ import { logError } from "./log";
 import { buildDemoPayment } from "./payments/stripe-test";
 
 export type BallStatus = "available" | "selected" | "sold";
-export type PurchaseStatus = "demo_pending" | "demo_confirmed" | "cancelled";
+export type PurchaseStatus = "demo_pending" | "demo_confirmed" | "cancelled" | "voided";
 export type PaymentMode = "stripe_test_fake" | "offline_demo";
 
 export type AttestationRecord = {
@@ -33,6 +33,12 @@ export type Ball = {
   status: BallStatus;
 };
 
+export type SaleVoid = {
+  at: string;
+  by: string;
+  reason: string;
+};
+
 export type PurchaseRecord = {
   id: string;
   status: PurchaseStatus;
@@ -49,8 +55,13 @@ export type PurchaseRecord = {
   selectionId: string;
   ball: Ball;
   emailRecord: StoredEmail | null;
+  void: SaleVoid | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type BuyerPurchase = Omit<PurchaseRecord, "void"> & {
+  void: { at: string; reason: string } | null;
 };
 
 export type SelectionRecord = {
@@ -65,6 +76,9 @@ export type SelectionRecord = {
   purchaseStatus: PurchaseStatus;
   receiptToken: string;
   emailRecord: StoredEmail | null;
+  voidedAt: string | null;
+  voidReason: string | null;
+  voidedBy: string | null;
   createdAt: string;
 };
 
@@ -103,6 +117,9 @@ type JoinedRow = {
   attested_at: string | null;
   attested_by: "buyer" | "admin" | null;
   attestation_text: string | null;
+  voided_at: string | null;
+  void_reason: string | null;
+  voided_by: string | null;
   selection_id: string;
   selection_email: string;
   selection_created_at: string;
@@ -146,6 +163,9 @@ const JOINED = `
     p.attested_at,
     p.attested_by,
     p.attestation_text,
+    p.voided_at,
+    p.void_reason,
+    p.voided_by,
     s.id AS selection_id,
     s.email AS selection_email,
     s.created_at AS selection_created_at,
@@ -225,10 +245,27 @@ function ballFromJoined(row: JoinedRow): Ball {
   };
 }
 
+function shownStatus(row: JoinedRow): PurchaseStatus {
+  if (row.voided_at) return "voided";
+  return row.purchase_status;
+}
+
+function voidFromRow(row: JoinedRow): SaleVoid | null {
+  if (!row.voided_at || !row.voided_by || !row.void_reason) return null;
+  return { at: row.voided_at, by: row.voided_by, reason: row.void_reason };
+}
+
+export function purchaseForBuyer(purchase: PurchaseRecord): BuyerPurchase {
+  return {
+    ...purchase,
+    void: purchase.void ? { at: purchase.void.at, reason: purchase.void.reason } : null,
+  };
+}
+
 export function toPurchase(row: JoinedRow): PurchaseRecord {
   return {
     id: row.purchase_id,
-    status: row.purchase_status,
+    status: shownStatus(row),
     paymentMode: row.payment_mode,
     charged: false,
     amountCents: row.amount_cents,
@@ -248,6 +285,7 @@ export function toPurchase(row: JoinedRow): PurchaseRecord {
     selectionId: row.selection_id,
     ball: ballFromJoined(row),
     emailRecord: emailFromRow(row),
+    void: voidFromRow(row),
     createdAt: row.purchase_created_at,
     updatedAt: row.purchase_updated_at,
   };
@@ -263,9 +301,12 @@ export function toSelection(row: JoinedRow): SelectionRecord {
     color: row.color,
     ballStatus: row.ball_status,
     purchaseId: row.purchase_id,
-    purchaseStatus: row.purchase_status,
+    purchaseStatus: shownStatus(row),
     receiptToken: row.receipt_token,
     emailRecord: emailFromRow(row),
+    voidedAt: row.voided_at,
+    voidReason: row.void_reason,
+    voidedBy: row.voided_by,
     createdAt: row.selection_created_at,
   };
 }
@@ -539,6 +580,7 @@ export async function confirmDemoPurchase(
 ): Promise<ConfirmedPurchase> {
   assertPaymentsAllowed(config);
   const current = await requireOwnedPurchase(db, purchaseId, email);
+  if (current.voided_at) throw new HttpError(409, "This sale was voided.");
   if (current.purchase_status === "cancelled") {
     throw new HttpError(409, "This hold was cancelled.");
   }
@@ -678,6 +720,7 @@ export async function cancelHold(
   email: string,
 ): Promise<PurchaseRecord> {
   const current = await requireOwnedPurchase(db, purchaseId, email);
+  if (current.voided_at) throw new HttpError(409, "This sale was voided.");
   if (current.purchase_status === "demo_confirmed") {
     throw new HttpError(409, "A confirmed demo record stays on the ball.");
   }
@@ -1161,4 +1204,122 @@ export async function recordOfflineSale(
   const saved = await loadPurchase(db, purchaseId);
   if (!saved) throw new HttpError(500, "Could not record the offline demo sale.");
   return { purchase: toPurchase(saved), email: await finishEmail(db, saved, config, origin) };
+}
+
+async function restoreVoidAttempt(
+  db: D1Database,
+  purchaseId: string,
+  ballId: number,
+  stampedAt: string,
+  previousUpdatedAt: string,
+  auditId: string,
+): Promise<void> {
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE purchases
+         SET voided_at = NULL, void_reason = NULL, voided_by = NULL, updated_at = ?
+         WHERE id = ? AND voided_at = ?`,
+      )
+      .bind(previousUpdatedAt, purchaseId, stampedAt),
+    db
+      .prepare(
+        `UPDATE balls
+         SET status = 'sold'
+         WHERE id = ?
+           AND status = 'available'
+           AND changes() = 1
+           AND NOT EXISTS (
+             SELECT 1
+             FROM ball_selections s
+             JOIN purchases p ON p.id = s.purchase_id
+             WHERE s.ball_id = balls.id
+               AND p.id != ?
+               AND p.status = 'demo_confirmed'
+               AND p.voided_at IS NULL
+           )`,
+      )
+      .bind(ballId, purchaseId),
+    db.prepare(`DELETE FROM sale_voids WHERE id = ?`).bind(auditId),
+  ]);
+}
+
+export async function voidConfirmedSale(
+  db: D1Database,
+  purchaseId: string,
+  reason: string,
+  voidedBy: string,
+): Promise<PurchaseRecord> {
+  const current = await loadPurchase(db, purchaseId);
+  if (!current) throw new HttpError(404, "That sale was not found.");
+  if (current.voided_at) throw new HttpError(409, "This sale is already voided.");
+  if (current.purchase_status !== "demo_confirmed") {
+    throw new HttpError(409, "Only a recorded sale can be voided.");
+  }
+  const now = new Date().toISOString();
+  const auditId = crypto.randomUUID();
+  const results = await db.batch([
+    db
+      .prepare(
+        `UPDATE purchases
+         SET voided_at = ?, void_reason = ?, voided_by = ?, updated_at = ?
+         WHERE id = ?
+           AND status = 'demo_confirmed'
+           AND voided_at IS NULL
+           AND demo_only = 1
+           AND EXISTS (
+             SELECT 1
+             FROM ball_selections s
+             JOIN balls b ON b.id = s.ball_id
+             WHERE s.purchase_id = purchases.id
+               AND s.ball_id = ?
+               AND b.status = 'sold'
+           )
+           AND NOT EXISTS (
+             SELECT 1
+             FROM ball_selections s
+             JOIN purchases other ON other.id = s.purchase_id
+             WHERE s.ball_id = ?
+               AND other.id != purchases.id
+               AND other.status = 'demo_confirmed'
+               AND other.voided_at IS NULL
+           )`,
+      )
+      .bind(now, reason, voidedBy, now, purchaseId, current.ball_id, current.ball_id),
+    db
+      .prepare(
+        `UPDATE balls
+         SET status = 'available'
+         WHERE id = ?
+           AND status = 'sold'
+           AND changes() = 1`,
+      )
+      .bind(current.ball_id),
+    db
+      .prepare(
+        `INSERT INTO sale_voids (id, purchase_id, ball_id, reason, voided_by, created_at)
+         SELECT ?, ?, ?, ?, ?, ?
+         WHERE changes() = 1`,
+      )
+      .bind(auditId, purchaseId, current.ball_id, reason, voidedBy, now),
+  ]);
+  const purchaseUpdate = results[0];
+  const ballUpdate = results[1];
+  const auditInsert = results[2];
+  if (!purchaseUpdate || !ballUpdate || !auditInsert) {
+    throw new HttpError(500, "Could not void this sale.");
+  }
+  const voided = changed(purchaseUpdate) === 1 && changed(ballUpdate) === 1 && changed(auditInsert) === 1;
+  if (!voided) {
+    if (changed(purchaseUpdate) === 1) {
+      await restoreVoidAttempt(db, purchaseId, current.ball_id, now, current.purchase_updated_at, auditId);
+      logError({ message: "void rolled back after a partial write", purchaseId, ballId: current.ball_id });
+    }
+    const again = await loadPurchase(db, purchaseId);
+    if (again?.voided_at) throw new HttpError(409, "This sale is already voided.");
+    throw new HttpError(409, "This sale could not be voided.");
+  }
+  const saved = await loadPurchase(db, purchaseId);
+  if (!saved?.voided_at) throw new HttpError(500, "Could not void this sale.");
+  return toPurchase(saved);
 }
