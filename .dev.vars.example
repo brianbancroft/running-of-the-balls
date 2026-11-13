@@ -1,6 +1,9 @@
 # Copy this file to .dev.vars for local `wrangler dev`.
 # .dev.vars is gitignored. Never commit real keys.
 #
+# Numbering, price, bundles, and pick-versus-assign are plain vars in
+# wrangler.jsonc, not secrets. See docs/OPERATIONS.md.
+#
 # EMAIL_DELIVERY in wrangler.jsonc is "dry_run", so a Resend key is not used
 # unless that var is changed on purpose. Leave RESEND_API_KEY empty to be sure
 # nothing is sent.
